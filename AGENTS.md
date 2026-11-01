@@ -1,0 +1,7 @@
+- F1 Telemetry Lab fetches OpenF1 directly from the browser via src/lib/openf1.ts (cache + serialized rate-limited queue); no backend needed because OpenF1 historical data is public with CORS.
+- Historical archives must remain browser-only; do not add storage, database writes or server-side retrieval for this workflow. The site is a static SPA deployed on GitHub Pages — there is no server runtime.
+- Playback uses one shared clock (src/hooks/use-playback.ts); charts are memoized and the cursor is an overlay so 60fps updates do not re-render Recharts.
+- Multi-year entries own their session, driver metadata and lap list; cache and visibility keys include session so identical driver/lap numbers in different seasons cannot collide.
+- Historical telemetry uses validated v1 or aggregated archive-v2 JSON and ZIP files from an offline FastF1 exporter; keep original samples, no bundled upstream archives. ZIP imports retain file references and load session samples lazily with a bounded cache rather than expanding the full archive in memory.
+- Match circuits by OpenF1 circuit_key, falling back to normalized circuit names for imported archives; do not artificially align coordinates across years because layouts and coordinate frames can differ.
+- The app is deployed under a subpath on GitHub Pages: any absolute asset URL must use `import.meta.env.BASE_URL` as prefix, and the build runs with `--base=/<repo-name>/`.

@@ -8,10 +8,5 @@ import tsConfigPaths from "vite-tsconfig-paths";
 // In CI si usa `vite build --base=/<nome-repo>/`; in locale resta "/".
 export default defineConfig({
   base: process.env["VITE_BASE_PATH"] || "/",
-  plugins: [
-    tsConfigPaths(),
-    tanstackRouter(),
-    viteReact(),
-    tailwindcss(),
-  ],
+  plugins: [tsConfigPaths(), tanstackRouter(), viteReact(), tailwindcss()],
 });

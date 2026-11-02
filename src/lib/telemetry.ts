@@ -2,10 +2,19 @@ import type { CarData, Lap, Location } from "./openf1";
 
 export interface TelSample {
   t: number; // seconds from lap start
-  speed: number | null; throttle: number | null; brake: number | null;
-  rpm: number | null; gear: number | null; drs: number | null; drsOpen: number | null;
+  speed: number | null;
+  throttle: number | null;
+  brake: number | null;
+  rpm: number | null;
+  gear: number | null;
+  drs: number | null;
+  drsOpen: number | null;
 }
-export interface PosSample { t: number; x: number; y: number }
+export interface PosSample {
+  t: number;
+  x: number;
+  y: number;
+}
 
 export interface LapData {
   driver: number;
@@ -23,11 +32,17 @@ export const MARGIN_S = 1.5; // extra fetched around lap boundaries for edge int
 export const MAX_POS_GAP = 1.5; // s: don't interpolate position across larger gaps
 export const MAX_TEL_STALE = 1.0; // s: readout considered missing beyond this
 
-export function lapWindow(lap: Lap, laps: Lap[]): { startMs: number; endMs: number; official: boolean } | null {
+export function lapWindow(
+  lap: Lap,
+  laps: Lap[],
+): { startMs: number; endMs: number; official: boolean } | null {
   if (!lap.date_start) return null;
   const startMs = Date.parse(lap.date_start);
-  if (lap.lap_duration) return { startMs, endMs: startMs + lap.lap_duration * 1000, official: true };
-  const next = laps.find((l) => l.driver_number === lap.driver_number && l.lap_number === lap.lap_number + 1);
+  if (lap.lap_duration)
+    return { startMs, endMs: startMs + lap.lap_duration * 1000, official: true };
+  const next = laps.find(
+    (l) => l.driver_number === lap.driver_number && l.lap_number === lap.lap_number + 1,
+  );
   if (next?.date_start) return { startMs, endMs: Date.parse(next.date_start), official: false };
   return null;
 }
@@ -54,8 +69,11 @@ function maxGap(ts: number[], dur: number) {
 }
 
 export function buildLapData(
-  driver: number, lapNumber: number, win: { startMs: number; endMs: number; official: boolean },
-  car: CarData[], loc: Location[],
+  driver: number,
+  lapNumber: number,
+  win: { startMs: number; endMs: number; official: boolean },
+  car: CarData[],
+  loc: Location[],
 ): LapData {
   const duration = (win.endMs - win.startMs) / 1000;
   const toT = (ms: number) => (ms - win.startMs) / 1000;
@@ -65,8 +83,13 @@ export function buildLapData(
       const brake = typeof brakeRaw === "boolean" ? (brakeRaw ? 100 : 0) : num(brakeRaw);
       const drs = num(c.drs);
       return {
-        t: toT(c.ms), speed: num(c.speed), throttle: num(c.throttle), brake: brake === null ? null : brake > 0 ? 1 : 0,
-        rpm: num(c.rpm), gear: num(c.n_gear), drs,
+        t: toT(c.ms),
+        speed: num(c.speed),
+        throttle: num(c.throttle),
+        brake: brake === null ? null : brake > 0 ? 1 : 0,
+        rpm: num(c.rpm),
+        gear: num(c.n_gear),
+        drs,
         drsOpen: drs === null ? null : drs >= 10 ? 1 : 0, // 10/12/14 = open per OpenF1 docs
       };
     })
@@ -81,9 +104,11 @@ export function buildLapData(
   let d = 0;
   for (let i = 0; i < tel.length; i++) {
     if (i > 0) {
-      const a = tel[i - 1]!, b = tel[i]!;
+      const a = tel[i - 1]!,
+        b = tel[i]!;
       const dt = b.t - a.t;
-      if (a.speed !== null && b.speed !== null && dt <= 1) d += ((a.speed + b.speed) / 2 / 3.6) * dt;
+      if (a.speed !== null && b.speed !== null && dt <= 1)
+        d += ((a.speed + b.speed) / 2 / 3.6) * dt;
       else if (a.speed !== null && dt <= 1) d += (a.speed / 3.6) * dt;
     }
     dist.push(d);
@@ -91,7 +116,14 @@ export function buildLapData(
   const inTel = tel.filter((s) => s.t >= 0 && s.t <= duration).map((s) => s.t);
   const inPos = pos.filter((s) => s.t >= 0 && s.t <= duration).map((s) => s.t);
   return {
-    driver, lapNumber, startMs: win.startMs, duration, durationOfficial: win.official, tel, pos, dist,
+    driver,
+    lapNumber,
+    startMs: win.startMs,
+    duration,
+    durationOfficial: win.official,
+    tel,
+    pos,
+    dist,
     coverage: {
       // nominal rates: car_data ≈ 3.7 Hz, location ≈ 3.7 Hz
       tel: Math.min(1, inTel.length / (duration * 3.7)),
@@ -103,19 +135,28 @@ export function buildLapData(
 }
 
 function lowerIdx<T extends { t: number }>(arr: T[], t: number): number {
-  let lo = 0, hi = arr.length - 1, ans = -1;
+  let lo = 0,
+    hi = arr.length - 1,
+    ans = -1;
   while (lo <= hi) {
     const m = (lo + hi) >> 1;
-    if (arr[m]!.t <= t) { ans = m; lo = m + 1; } else hi = m - 1;
+    if (arr[m]!.t <= t) {
+      ans = m;
+      lo = m + 1;
+    } else hi = m - 1;
   }
   return ans;
 }
 
 /** Interpolated position, or null when no bracketing samples within MAX_POS_GAP. */
-export function positionAt(pos: PosSample[], t: number): { x: number; y: number; interpolated: boolean } | null {
+export function positionAt(
+  pos: PosSample[],
+  t: number,
+): { x: number; y: number; interpolated: boolean } | null {
   const i = lowerIdx(pos, t);
   if (i < 0) return null;
-  const a = pos[i]!, b = pos[i + 1]!;
+  const a = pos[i]!,
+    b = pos[i + 1]!;
   if (!b) return t - a.t <= 0.5 ? { x: a.x, y: a.y, interpolated: false } : null;
   const gap = b.t - a.t;
   if (gap > MAX_POS_GAP) return t - a.t <= 0.5 ? { x: a.x, y: a.y, interpolated: false } : null;
@@ -134,7 +175,8 @@ export function telemetryAt(tel: TelSample[], t: number): { s: TelSample; idx: n
 export function distanceAt(lap: LapData, t: number): number | null {
   const i = lowerIdx(lap.tel, t);
   if (i < 0 || !lap.tel[i + 1]!) return null;
-  const a = lap.tel[i]!, b = lap.tel[i + 1]!;
+  const a = lap.tel[i]!,
+    b = lap.tel[i + 1]!;
   if (b.t - a.t > 1) return null;
   const f = (t - a.t) / (b.t - a.t || 1);
   return lap.dist[i]! + (lap.dist[i + 1]! - lap.dist[i]!) * f;
@@ -144,10 +186,16 @@ export function distanceAt(lap: LapData, t: number): number | null {
 export function timeAtDistance(lap: LapData, d: number): number | null {
   const ds = lap.dist;
   if (!ds.length || d > ds[ds.length - 1]!) return null;
-  let lo = 0, hi = ds.length - 1;
-  while (lo < hi) { const m = (lo + hi) >> 1; if (ds[m]! < d) lo = m + 1; else hi = m; }
+  let lo = 0,
+    hi = ds.length - 1;
+  while (lo < hi) {
+    const m = (lo + hi) >> 1;
+    if (ds[m]! < d) lo = m + 1;
+    else hi = m;
+  }
   if (lo === 0) return lap.tel[0]!.t;
-  const a = lo - 1, f = (d - ds[a]!) / (ds[lo]! - ds[a]! || 1);
+  const a = lo - 1,
+    f = (d - ds[a]!) / (ds[lo]! - ds[a]! || 1);
   return lap.tel[a]!.t + (lap.tel[lo]!.t - lap.tel[a]!.t) * f;
 }
 
@@ -156,7 +204,8 @@ export function timeAtDistance(lap: LapData, d: number): number | null {
  * Distances are rebased at t=0 so both laps start from 0m. Positive = B behind.
  */
 export function estimatedDelta(a: LapData, b: LapData, t: number): number | null {
-  const a0 = distanceAt(a, 0), b0 = distanceAt(b, 0);
+  const a0 = distanceAt(a, 0),
+    b0 = distanceAt(b, 0);
   const da = distanceAt(a, t);
   if (a0 === null || b0 === null || da === null) return null;
   const tb = timeAtDistance(b, da - a0 + b0);
@@ -180,8 +229,15 @@ function lighten(hex: string, f = 0.5) {
   const ch = (s: number) => Math.round(((n >> s) & 255) + (255 - ((n >> s) & 255)) * f);
   return `#${[16, 8, 0].map((s) => ch(s).toString(16).padStart(2, "0")).join("")}`;
 }
-function rgb(hex: string) { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
-function close(a: string, b: string) { const x = rgb(a), y = rgb(b); return Math.hypot(x[0]! - y[0]!, x[1]! - y[1]!, x[2]! - y[2]!) < 60; }
+function rgb(hex: string) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function close(a: string, b: string) {
+  const x = rgb(a),
+    y = rgb(b);
+  return Math.hypot(x[0]! - y[0]!, x[1]! - y[1]!, x[2]! - y[2]!) < 60;
+}
 /** Team colour, made distinct from earlier slots by lightening (or palette fallback). */
 export function distinctColors(teamHexes: (string | null | undefined)[]): string[] {
   const out: string[] = [];
@@ -189,7 +245,10 @@ export function distinctColors(teamHexes: (string | null | undefined)[]): string
     let c = teamColor(h, FALLBACKS[i]!);
     for (const f of [0.45, 0.7, -1]) {
       if (!out.some((o) => close(o, c))) break;
-      c = f < 0 ? FALLBACKS.find((p) => !out.some((o) => close(o, p))) ?? FALLBACKS[i]! : lighten(teamColor(h, FALLBACKS[i]!), f);
+      c =
+        f < 0
+          ? (FALLBACKS.find((p) => !out.some((o) => close(o, p))) ?? FALLBACKS[i]!)
+          : lighten(teamColor(h, FALLBACKS[i]!), f);
     }
     out.push(c);
   });

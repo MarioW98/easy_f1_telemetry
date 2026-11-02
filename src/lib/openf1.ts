@@ -5,32 +5,63 @@ const TIMEOUT_MS = 25000;
 
 export type ApiErrorKind = "network" | "rate_limit" | "http" | "timeout";
 export class ApiError extends Error {
-  constructor(public kind: ApiErrorKind, message: string, public status?: number) {
+  constructor(
+    public kind: ApiErrorKind,
+    message: string,
+    public status?: number,
+  ) {
     super(message);
   }
 }
 
 export interface Meeting {
-  meeting_key: number; meeting_name: string; meeting_official_name?: string;
-  country_name: string; circuit_short_name: string; circuit_key?: number; date_start: string; year: number;
+  meeting_key: number;
+  meeting_name: string;
+  meeting_official_name?: string;
+  country_name: string;
+  circuit_short_name: string;
+  circuit_key?: number;
+  date_start: string;
+  year: number;
 }
 export interface Session {
-  session_key: number; session_name: string; session_type: string;
-  date_start: string; date_end: string; meeting_key: number; is_cancelled?: boolean;
+  session_key: number;
+  session_name: string;
+  session_type: string;
+  date_start: string;
+  date_end: string;
+  meeting_key: number;
+  is_cancelled?: boolean;
 }
 export interface Driver {
-  driver_number: number; name_acronym: string; full_name: string;
-  team_name: string | null; team_colour: string | null;
+  driver_number: number;
+  name_acronym: string;
+  full_name: string;
+  team_name: string | null;
+  team_colour: string | null;
 }
 export interface Lap {
-  driver_number: number; lap_number: number; date_start: string | null;
-  lap_duration: number | null; is_pit_out_lap: boolean | null;
+  driver_number: number;
+  lap_number: number;
+  date_start: string | null;
+  lap_duration: number | null;
+  is_pit_out_lap: boolean | null;
 }
 export interface CarData {
-  date: string; speed: number | null; throttle: number | null; brake: number | null;
-  rpm: number | null; n_gear: number | null; drs: number | null;
+  date: string;
+  speed: number | null;
+  throttle: number | null;
+  brake: number | null;
+  rpm: number | null;
+  n_gear: number | null;
+  drs: number | null;
 }
-export interface Location { date: string; x: number | null; y: number | null; z: number | null }
+export interface Location {
+  date: string;
+  x: number | null;
+  y: number | null;
+  z: number | null;
+}
 
 const cache = new Map<string, Promise<unknown>>();
 let chain: Promise<void> = Promise.resolve();
@@ -54,7 +85,8 @@ async function doFetch<T>(url: string, attempt = 0): Promise<T> {
   try {
     res = await fetch(url, { signal: ctrl.signal });
   } catch (e) {
-    if ((e as Error).name === "AbortError") throw new ApiError("timeout", "La richiesta ha impiegato troppo tempo.");
+    if ((e as Error).name === "AbortError")
+      throw new ApiError("timeout", "La richiesta ha impiegato troppo tempo.");
     throw new ApiError("network", "Errore di rete: impossibile contattare OpenF1.");
   } finally {
     clearTimeout(to);
@@ -64,16 +96,25 @@ async function doFetch<T>(url: string, attempt = 0): Promise<T> {
       await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
       return doFetch<T>(url, attempt + 1);
     }
-    throw new ApiError("rate_limit", "Limite di richieste OpenF1 raggiunto. Attendi qualche secondo e riprova.", 429);
+    throw new ApiError(
+      "rate_limit",
+      "Limite di richieste OpenF1 raggiunto. Attendi qualche secondo e riprova.",
+      429,
+    );
   }
   // OpenF1 returns 404 with {"detail":"No results found."} for empty results
   if (res.status === 404) return [] as T;
-  if (!res.ok) throw new ApiError("http", `OpenF1 ha risposto con errore HTTP ${res.status}.`, res.status);
+  if (!res.ok)
+    throw new ApiError("http", `OpenF1 ha risposto con errore HTTP ${res.status}.`, res.status);
   const json = await res.json();
   return (Array.isArray(json) ? json : []) as T;
 }
 
-export function get<T>(path: string, params: Record<string, string | number> = {}, raw: string[] = []): Promise<T> {
+export function get<T>(
+  path: string,
+  params: Record<string, string | number> = {},
+  raw: string[] = [],
+): Promise<T> {
   const qs = [
     ...Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`),
     ...raw, // pre-built filters like date>=...

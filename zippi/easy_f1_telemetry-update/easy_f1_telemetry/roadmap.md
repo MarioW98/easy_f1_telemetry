@@ -1,0 +1,7 @@
+- [x] Confrontare fino a quattro giri di annate differenti sullo stesso circuito.
+- [x] Integrare telemetrie reali anteriori al 2023 tramite archivi FastF1 importati (2018–2022), dichiarando la copertura disponibile.
+- [x] Verificare selezione, caricamento e riproduzione con dati reali e test mirati: Jeddah 2023/2024 e quattro giri di Monza 2022/2024, desktop e smartphone; 12 test superati.
+- [x] Integrare il formato aggregato archive-v2 mantenendo il supporto ai JSON v1 e a OpenF1.
+- [x] Creare l'esportatore 2018–2022 con calendario automatico, sessioni sprint, modalità completa/compatta, cache e registro errori.
+- [x] Importare un unico JSON o ZIP per sessione dal browser, con selezione/trascinamento, progressi, limiti e riepilogo.
+- [x] Verificare un unico archivio con almeno due Gran Premi e riproduzione di entrambe le sessioni; test mirati.

@@ -26,8 +26,7 @@ export default tseslint.config(
           paths: [
             {
               name: "server-only",
-              message:
-                "This static SPA does not use the Next.js `server-only` package.",
+              message: "This static SPA does not use the Next.js `server-only` package.",
             },
           ],
         },

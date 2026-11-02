@@ -7,11 +7,14 @@ export function usePlayback(duration: number) {
   const [rate, setRate] = useState(1);
   const timeRef = useRef(0);
 
-  const seek = useCallback((t: number) => {
-    const v = Math.max(0, Math.min(duration, t));
-    timeRef.current = v;
-    setTime(v);
-  }, [duration]);
+  const seek = useCallback(
+    (t: number) => {
+      const v = Math.max(0, Math.min(duration, t));
+      timeRef.current = v;
+      setTime(v);
+    },
+    [duration],
+  );
 
   useEffect(() => {
     if (!playing || duration <= 0) return;
@@ -23,14 +26,20 @@ export function usePlayback(duration: number) {
       const next = Math.min(duration, timeRef.current + dt * rate);
       timeRef.current = next;
       setTime(next);
-      if (next >= duration) { setPlaying(false); return; }
+      if (next >= duration) {
+        setPlaying(false);
+        return;
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [playing, rate, duration]);
 
-  const reset = useCallback(() => { setPlaying(false); seek(0); }, [seek]);
+  const reset = useCallback(() => {
+    setPlaying(false);
+    seek(0);
+  }, [seek]);
   const toggle = useCallback(() => {
     if (!playing && timeRef.current >= duration) seek(0);
     setPlaying((p) => !p);

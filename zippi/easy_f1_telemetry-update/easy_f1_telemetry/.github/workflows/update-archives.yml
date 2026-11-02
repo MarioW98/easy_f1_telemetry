@@ -1,0 +1,67 @@
+name: Update F1 Archives
+
+on:
+  workflow_dispatch:
+    inputs:
+      year:
+        description: "Anno da esportare (2018-2022)"
+        type: choice
+        required: true
+        options: ["2018", "2019", "2020", "2021", "2022"]
+      mode:
+        description: "Modalità: compact = giro più veloce per pilota (consigliata, file piccoli)"
+        type: choice
+        default: "compact"
+        options: ["compact", "full"]
+      sessions:
+        description: "Sessioni da includere (default: solo gare, per limitare i download grezzi)"
+        type: choice
+        default: "race"
+        options: ["race", "quali", "race-quali", "all"]
+      rounds:
+        description: "Round facoltativi, es. 1-12,14 (vuoto = tutti). Utile per spezzare un anno in più esecuzioni."
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-archives
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install FastF1
+        run: pip install 'fastf1>=3.4,<4'
+
+      - name: Export sessions (scarica i flussi grezzi solo per le sessioni richieste)
+        run: |
+          python public/history/export_fastf1_sessions.py \
+            --year "${{ github.event.inputs.year }}" \
+            --mode "${{ github.event.inputs.mode }}" \
+            --sessions "${{ github.event.inputs.sessions }}" \
+            --rounds "${{ github.event.inputs.rounds }}"
+
+      - name: Guardia dimensione (nessun file oltre 95 MB, limite Git 100 MB)
+        run: |
+          big=$(find public/data/archives -type f -size +95M || true)
+          if [ -n "$big" ]; then
+            echo "File troppo grandi per il repository:"; echo "$big"; exit 1
+          fi
+
+      - name: Commit archives
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore(archives): ${{ github.event.inputs.year }} ${{ github.event.inputs.sessions }} (${{ github.event.inputs.mode }})"
+          file_pattern: "public/data/archives/**"

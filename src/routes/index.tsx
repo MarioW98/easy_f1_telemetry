@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -14,8 +14,6 @@ import {
   Eye,
   EyeOff,
   Plus,
-  Maximize2,
-  Minimize2,
 } from "lucide-react";
 import { ApiError, type Driver } from "@/lib/openf1";
 import {
@@ -28,7 +26,6 @@ import {
 import { TrackMap } from "@/components/f1/TrackMap";
 import { SERIES, TelemetryCharts, type SeriesKey } from "@/components/f1/TelemetryCharts";
 import { usePlayback } from "@/hooks/use-playback";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { useTelemetryData, useLapQueries } from "@/hooks/useTelemetryData";
 import { Button } from "@/components/ui/button";
 import { HistoricalPicker, type Selection } from "@/components/f1/HistoricalPicker";
@@ -65,8 +62,6 @@ export const Route = createFileRoute("/")({
 
 const DASHES = [undefined, "6 3", "2 2", "9 3 2 3"];
 const DASH_LABEL = ["continua", "tratteggiata", "punteggiata", "tratto-punto"];
-const MAP_MIN = 140;
-const TEL_MIN = 200;
 
 function errMsg(e: unknown) {
   if (e instanceof ApiError) return e.message;
@@ -129,7 +124,6 @@ function Dashboard() {
     staleTime: Infinity,
     retry: false,
   });
-  const isMobile = useIsMobile();
 
   // default year after switching source (or first visit, or when the manifest arrives)
   useEffect(() => {
@@ -264,48 +258,6 @@ function Dashboard() {
     pb.seek(next ? next.t : dir > 0 ? duration : 0);
   };
 
-  // ---- resizable split between circuit and telemetry ----
-  const colRef = useRef<HTMLDivElement>(null);
-  const telRef = useRef<HTMLDivElement>(null);
-  const [colH, setColH] = useState(800);
-  const [telH, setTelH] = useState(400);
-  const [mapH, setMapH] = useState<number | null>(null);
-  const [expanded, setExpanded] = useState(false);
-  useEffect(() => {
-    const ro = new ResizeObserver(() => {
-      if (colRef.current) setColH(colRef.current.clientHeight);
-      if (telRef.current) setTelH(telRef.current.clientHeight);
-    });
-    if (colRef.current) ro.observe(colRef.current);
-    if (telRef.current) ro.observe(telRef.current);
-    return () => ro.disconnect();
-  });
-  const PLAYBAR = 48;
-  const mapMax = Math.max(MAP_MIN, colH - PLAYBAR - TEL_MIN);
-  const mapHeight = isMobile
-    ? expanded
-      ? 160
-      : 300
-    : expanded
-      ? MAP_MIN
-      : Math.min(mapMax, Math.max(MAP_MIN, mapH ?? Math.round(colH * 0.48)));
-  const startDrag = (e: React.PointerEvent) => {
-    e.preventDefault();
-    const y0 = e.clientY,
-      h0 = mapHeight;
-    setExpanded(false);
-    const move = (ev: PointerEvent) =>
-      setMapH(Math.min(mapMax, Math.max(MAP_MIN, h0 + ev.clientY - y0)));
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
-  const baseChartsH = SERIES.filter((s) => visible[s.key]).reduce((a, s) => a + s.h + 1, 0) + 20;
-  const scale = isMobile ? 1 : Math.min(4, Math.max(1, (telH - 40) / baseChartsH));
-
   const loading =
     meetingsQ.isFetching ||
     sessionsQ.isFetching ||
@@ -339,7 +291,7 @@ function Dashboard() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col md:h-screen md:min-h-[640px] bg-background text-foreground">
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
       {/* Top bar */}
       <header className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-3 py-2">
         <div className="mr-3 flex w-full items-center gap-2 sm:w-auto">
@@ -566,12 +518,9 @@ function Dashboard() {
       ) : loaded.length && !hasData ? (
         <EmptyState text="Nessun dato di telemetria o posizione per i giri selezionati." warn />
       ) : loaded.length ? (
-        <main className="grid flex-1 md:min-h-0 grid-cols-1 gap-2 p-2 xl:grid-cols-[1fr_280px]">
-          <div ref={colRef} className="flex min-h-0 min-w-0 flex-col">
-            <div
-              className="f1-panel shrink-0 overflow-hidden touch-pan-y transition-[height] duration-150"
-              style={{ height: mapHeight }}
-            >
+        <main className="grid flex-1 grid-cols-1 gap-2 p-2 xl:grid-cols-[1fr_300px]">
+          <div className="flex min-w-0 flex-col">
+            <div className="f1-panel h-[300px] shrink-0 overflow-hidden touch-pan-y sm:h-[420px] xl:h-[540px]">
               <TrackMap
                 drivers={mapDrivers}
                 time={t}
@@ -581,23 +530,58 @@ function Dashboard() {
                 }}
               />
             </div>
-            {/* Drag divider */}
-            <div
-              role="separator"
-              aria-orientation="horizontal"
-              aria-label="Ridimensiona circuito / telemetria"
-              title="Trascina per ridimensionare"
-              onPointerDown={startDrag}
-              onDoubleClick={() => {
-                setExpanded(false);
-                setMapH(null);
-              }}
-              className="group hidden h-3 shrink-0 md:flex cursor-row-resize items-center justify-center"
-            >
-              <div className="h-1 w-16 rounded-full bg-border group-hover:bg-primary" />
+            {/* Telemetry */}
+            <div className="f1-panel mt-2 flex flex-col p-2">
+              <div className="mb-1 flex shrink-0 flex-wrap items-center gap-1">
+                <span className="f1-label mr-2 w-full sm:w-auto">
+                  Telemetria · asse X = secondi dall'inizio di ciascun giro
+                </span>
+                {SERIES.map((s) => (
+                  <Button
+                    variant="ghost"
+                    key={s.key}
+                    onClick={() => toggleSeries(s.key)}
+                    className={`inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] sm:px-1.5 sm:py-0.5 sm:text-[10px] ${visible[s.key] ? "text-foreground" : "text-muted-foreground line-through"}`}
+                  >
+                    {visible[s.key] ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                    {s.label}
+                  </Button>
+                ))}
+                {focus && (
+                  <Button
+                    variant="ghost"
+                    onClick={() => setFocus(null)}
+                    className="ml-auto inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+                  >
+                    <RotateCcw className="h-3 w-3" /> Ripristina grafici
+                  </Button>
+                )}
+              </div>
+              <div>
+                {chartDrivers.length ? (
+                  <TelemetryCharts
+                    drivers={chartDrivers}
+                    duration={duration}
+                    time={t}
+                    onSeek={(x) => {
+                      pb.setPlaying(false);
+                      pb.seek(x);
+                    }}
+                    visible={visible}
+                    focus={focus && visible[focus] ? focus : null}
+                    onFocus={setFocus}
+                  />
+                ) : (
+                  <p className="p-4 text-muted-foreground">
+                    {loaded.length && shown.length === 0
+                      ? "Tutti i piloti sono nascosti: riattivali dalla legenda."
+                      : "Nessun campione /car_data per i giri visibili."}
+                  </p>
+                )}
+              </div>
             </div>
-            {/* Playback */}
-            <div className="f1-panel sticky bottom-0 z-30 mt-2 flex shrink-0 flex-wrap items-center gap-2 px-2 py-1.5 shadow-lg md:static md:mt-0 md:shadow-none">
+            {/* Playback — ultimo elemento della colonna: resta fisso in basso durante lo scroll */}
+            <div className="f1-panel sticky bottom-0 z-30 mt-2 flex shrink-0 flex-wrap items-center gap-2 px-2 py-1.5 shadow-lg">
               <IconBtn label="Riavvia" onClick={pb.reset}>
                 <RotateCcw className="h-4 w-4" />
               </IconBtn>
@@ -645,80 +629,10 @@ function Dashboard() {
                 {curRef ? curRef.idx + 1 : "—"}/{ref0?.lap.tel.length ?? 0}
               </span>
             </div>
-            {/* Telemetry */}
-            <div className="f1-panel mt-2 flex flex-col p-2 md:min-h-0 md:flex-1">
-              <div className="mb-1 flex shrink-0 flex-wrap items-center gap-1">
-                <span className="f1-label mr-2 w-full sm:w-auto">
-                  Telemetria · asse X = secondi dall'inizio di ciascun giro
-                </span>
-                {SERIES.map((s) => (
-                  <Button
-                    variant="ghost"
-                    key={s.key}
-                    onClick={() => toggleSeries(s.key)}
-                    className={`inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] sm:px-1.5 sm:py-0.5 sm:text-[10px] ${visible[s.key] ? "text-foreground" : "text-muted-foreground line-through"}`}
-                  >
-                    {visible[s.key] ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
-                    {s.label}
-                  </Button>
-                ))}
-                <Button
-                  variant="ghost"
-                  onClick={() => setExpanded((x) => !x)}
-                  className="ml-auto inline-flex items-center gap-1 rounded border border-border bg-secondary px-2 py-0.5 text-[11px] hover:text-foreground"
-                >
-                  {expanded ? (
-                    <>
-                      <Minimize2 className="h-3 w-3" /> Layout normale
-                    </>
-                  ) : (
-                    <>
-                      <Maximize2 className="h-3 w-3" /> Espandi telemetria
-                    </>
-                  )}
-                </Button>
-                {(expanded || mapH !== null || focus) && (
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      setExpanded(false);
-                      setMapH(null);
-                      setFocus(null);
-                    }}
-                    className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"
-                  >
-                    <RotateCcw className="h-3 w-3" /> Ripristina
-                  </Button>
-                )}
-              </div>
-              <div ref={telRef} className="md:min-h-0 md:flex-1 md:overflow-y-auto">
-                {chartDrivers.length ? (
-                  <TelemetryCharts
-                    drivers={chartDrivers}
-                    duration={duration}
-                    time={t}
-                    onSeek={(x) => {
-                      pb.setPlaying(false);
-                      pb.seek(x);
-                    }}
-                    visible={visible}
-                    scale={scale}
-                    focus={focus && visible[focus] ? focus : null}
-                    onFocus={setFocus}
-                  />
-                ) : (
-                  <p className="p-4 text-muted-foreground">
-                    {loaded.length && shown.length === 0
-                      ? "Tutti i piloti sono nascosti: riattivali dalla legenda."
-                      : "Nessun campione /car_data per i giri visibili."}
-                  </p>
-                )}
-              </div>
-            </div>
           </div>
 
           {/* Side readouts */}
-          <aside className="grid content-start gap-2 sm:grid-cols-2 md:min-h-0 md:overflow-y-auto xl:flex xl:flex-col">
+          <aside className="grid content-start gap-2 sm:grid-cols-2 xl:flex xl:flex-col">
             {lapErrors.map((x, i) => (
               <ErrorBox key={i} error={x.q.error} onRetry={() => x.q.refetch()} />
             ))}

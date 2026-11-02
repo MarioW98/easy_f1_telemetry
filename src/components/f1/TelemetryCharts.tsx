@@ -19,7 +19,7 @@ export const SERIES: {
     label: "Velocità",
     unit: "km/h",
     domain: [0, 360],
-    h: 110,
+    h: 160,
     fmt: (v) => v.toFixed(0),
   },
   {
@@ -27,7 +27,7 @@ export const SERIES: {
     label: "Acceleratore",
     unit: "%",
     domain: [0, 100],
-    h: 70,
+    h: 110,
     fmt: (v) => v.toFixed(0),
   },
   {
@@ -36,7 +36,7 @@ export const SERIES: {
     unit: "on/off",
     domain: [0, 1],
     step: true,
-    h: 44,
+    h: 70,
     fmt: (v) => (v ? "ON" : "OFF"),
   },
   {
@@ -44,7 +44,7 @@ export const SERIES: {
     label: "RPM",
     unit: "giri/min",
     domain: [4000, 13000],
-    h: 70,
+    h: 110,
     fmt: (v) => v.toFixed(0),
   },
   {
@@ -53,7 +53,7 @@ export const SERIES: {
     unit: "",
     domain: [0, 8],
     step: true,
-    h: 60,
+    h: 90,
     fmt: (v) => v.toFixed(0),
   },
   {
@@ -62,7 +62,7 @@ export const SERIES: {
     unit: "aperto",
     domain: [0, 1],
     step: true,
-    h: 40,
+    h: 64,
     fmt: (v) => (v ? "APERTO" : "CHIUSO"),
   },
 ];

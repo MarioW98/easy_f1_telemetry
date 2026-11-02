@@ -65,7 +65,7 @@ export function ArchiveImporter({ onImported }: { onImported: (summary: ImportSu
         onChange={(e) => void load(e.target.files?.[0])}
       />
       <Button size="sm" variant="outline" disabled={busy} onClick={() => input.current?.click()}>
-        {busy ? <Loader2 className="animate-spin" /> : <FileArchive />}Importa archivio 2018–2022
+        {busy ? <Loader2 className="animate-spin" /> : <FileArchive />}Importa archivio 2018–2026
       </Button>
       <span className="text-xs text-muted-foreground">JSON o ZIP · trascina qui il file</span>
       <a

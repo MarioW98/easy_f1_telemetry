@@ -1,7 +1,7 @@
 # F1 Telemetry Lab
 
 Confronta fino a quattro giri di Formula 1 sullo stesso circuito, anche di annate differenti:
-telemetria OpenF1 dal 2023 e archivi FastF1 2018–2022, con riproduzione sincronizzata,
+telemetria OpenF1 dal 2023 e archivi FastF1 2018–2026, con riproduzione sincronizzata,
 mappe del tracciato con traiettorie cliccabili e grafici (speed, throttle, brake, RPM, marcia, DRS).
 
 App completamente client-side: nessun backend, nessuna registrazione, nessuna API key.
@@ -11,7 +11,7 @@ App completamente client-side: nessun backend, nessuna registrazione, nessuna AP
 In alto a destra l'interruttore sceglie da dove arrivano i dati (la scelta viene salvata nel browser):
 
 - **OpenF1 Live** (2023–oggi): API pubblica [OpenF1](https://openf1.org), tier gratuito ≈ 3 richieste/secondo (il client mette in coda e mette in cache da solo).
-- **Dati Locali** (2018–2022): archivi FastF1 in formato JSON per sessione, due modi per averli:
+- **Dati Locali** (2018–2026): archivi FastF1 in formato JSON per sessione, due modi per averli:
   1. **Archivi** (pulsante nell'header): elenca le sessioni pubblicate in questo repository (`public/data/archives/`, descritte da `manifest.json`) e scarica solo quelle che ti interessano — tipicamente 1–4 MB a sessione, giro più veloce per pilota;
   2. **Importa archivio**: carica un file `.json` o `.zip` generato in locale con gli script in `public/history/` (modalità completa o compatta).
 
@@ -34,14 +34,15 @@ Il workflow `.github/workflows/update-archives.yml` si esegue a mano (**Actions 
 
 | Input | Significato |
 | --- | --- |
-| `year` | anno da esportare (2018–2022), uno per esecuzione |
+| `year` | anno da esportare (2018–2026), uno per esecuzione |
 | `mode` | `compact` (default: giro più veloce per pilota, file piccoli) o `full` (tutti i giri: file molto grandi, evita su gare) |
-| `sessions` | `race` (default: solo gare), `quali`, `race-quali`, `all` |
+| `sessions` | `race` (default: solo gare), `quali`, `race-quali`, `race-quali-fp` (weekend completo: gare, qualifiche e prove libere), `all` (include anche sprint) |
 | `rounds` | opzionale, es. `1-12,14`: elabora solo quei round per spezzare un anno in più esecuzioni |
 
 Note importanti:
 
 - **Il download grezzo di FastF1 è per sessione intera** (car_data/pos_data non si possono richiedere parziali): sono i "decine di GB" all'anno. Succede solo sul runner GitHub durante la generazione — nel repository vengono committati **solo i JSON compatti** (per un'intera annata in `race` + `compact`: decine di MB, non GB).
+- **Credenziali F1 (consigliate per 2018–2020 e per le prove libere):** crea un account gratuito su [formula1.com](https://www.formula1.com) e aggiungi i secret `F1_USERNAME` e `F1_PASSWORD` (**Settings → Secrets and variables → Actions**). Con le credenziali il download usa direttamente livetiming.formula1.com (tutte le stagioni, tutte le sessioni); senza, FastF1 prova il mirror pubblico, che ha copertura parziale e variabile.
 - Default prudenziali: `race` + `compact` + un anno per volta. Se un run avvicina il limite di tempo, riesegui lo stesso anno con `rounds=1-12` e poi `rounds=13-24`.
 - Il workflow rifà il commit automaticamente in `public/data/archives/` e rigenera `manifest.json`; nessun file può superare 95 MB (guardia integrata).
 - Dopo il commit il sito si aggiorna col nuovo deploy e le sessioni compaiono nel pulsante «Archivi».

@@ -4,20 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       year:
-        description: "Anno da esportare (2018-2022)"
+        description: "Anno da esportare (2018-2026)"
         type: choice
         required: true
-        options: ["2018", "2019", "2020", "2021", "2022"]
+        options: ["2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025", "2026"]
       mode:
         description: "Modalità: compact = giro più veloce per pilota (consigliata, file piccoli)"
         type: choice
         default: "compact"
         options: ["compact", "full"]
       sessions:
-        description: "Sessioni da includere (default: solo gare, per limitare i download grezzi)"
+        description: "Sessioni da includere (race-quali-fp = weekend completo classico)"
         type: choice
         default: "race"
-        options: ["race", "quali", "race-quali", "all"]
+        options: ["race", "quali", "race-quali", "race-quali-fp", "all"]
       rounds:
         description: "Round facoltativi, es. 1-12,14 (vuoto = tutti). Utile per spezzare un anno in più esecuzioni."
         type: string
@@ -47,6 +47,12 @@ jobs:
         run: pip install 'fastf1>=3.4,<4'
 
       - name: Export sessions (scarica i flussi grezzi solo per le sessioni richieste)
+        env:
+          # Opzionali: account F1 gratuito (formula1.com) → Settings → Secrets → Actions.
+          # Con le credenziali il download usa direttamente livetiming.formula1.com
+          # (tutte le stagioni); senza, FastF1 prova il mirror pubblico (copertura parziale).
+          F1_USERNAME: ${{ secrets.F1_USERNAME }}
+          F1_PASSWORD: ${{ secrets.F1_PASSWORD }}
         run: |
           python public/history/export_fastf1_sessions.py \
             --year "${{ github.event.inputs.year }}" \

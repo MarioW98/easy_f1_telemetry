@@ -15,7 +15,7 @@ const manifestSchema = z.object({
   generated: z.string().nullable().optional(),
   sessions: z.array(
     z.object({
-      year: z.number().int().min(2018).max(2022),
+      year: z.number().int().min(2018).max(2026),
       event: z.string().min(1),
       circuit: z.string().min(1),
       session: z.string().min(1),

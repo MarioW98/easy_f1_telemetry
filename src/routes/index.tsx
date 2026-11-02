@@ -48,13 +48,13 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Confronta fino a quattro giri di Formula 1 sullo stesso circuito, anche di annate differenti: OpenF1 dal 2023 e archivi FastF1 2018–2022.",
+          "Confronta fino a quattro giri di Formula 1 sullo stesso circuito, anche di annate differenti: OpenF1 dal 2023 e archivi FastF1 2018–2026.",
       },
       { property: "og:title", content: "F1 Telemetry Lab" },
       {
         property: "og:description",
         content:
-          "Telemetria reale F1 con riproduzione sincronizzata e confronto tra piloti e annate, inclusi archivi FastF1 2018–2022.",
+          "Telemetria reale F1 con riproduzione sincronizzata e confronto tra piloti e annate, inclusi archivi FastF1 2018–2026.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -551,7 +551,7 @@ function Dashboard() {
               ? "Seleziona da 1 a 4 piloti con il rispettivo giro, poi premi «Carica analisi»."
               : isLocal && !hasLocalContent
                 ? "Nessun archivio locale: apri «Archivi» per scaricare le sessioni dal repository, importa un file, oppure passa a «OpenF1 Live»."
-                : "Seleziona stagione, Gran Premio e sessione per iniziare. OpenF1 dal 2023; archivi FastF1 2018–2022 dal repository o importati."
+                : "Seleziona stagione, Gran Premio e sessione per iniziare. OpenF1 dal 2023; archivi FastF1 2018–2026 dal repository o importati."
           }
         />
       ) : loaded.length === 0 && fetching ? (
@@ -797,7 +797,7 @@ function Dashboard() {
         </main>
       ) : null}
       <footer className="border-t border-border px-3 py-1 text-[10px] text-muted-foreground">
-        Dati: OpenF1 dal 2023 · FastF1 2018–2022 da archivi del repository o importati · non
+        Dati: OpenF1 dal 2023 · FastF1 2018–2026 da archivi del repository o importati · non
         ufficiale · frequenza variabile; posizione interpolata tra campioni ≤1,5 s.
       </footer>
     </div>

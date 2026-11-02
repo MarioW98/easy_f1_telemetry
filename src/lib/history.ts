@@ -4,7 +4,7 @@ import { buildLapData, lapWindow, MARGIN_S, type LapData } from "./telemetry";
 
 const finite = z.number().finite();
 export const sessionMetadataSchema = z.object({
-  year: z.number().int().min(2018).max(2022),
+  year: z.number().int().min(2018).max(2026),
   event: z.string().min(1),
   circuit: z.string().min(1),
   session: z.string().min(1),

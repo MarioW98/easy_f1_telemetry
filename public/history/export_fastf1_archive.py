@@ -1,4 +1,4 @@
-"""Export private FastF1 archives (2018-2022); no redistribution rights granted.
+"""Export private FastF1 archives (2018-2026); no redistribution rights granted.
 Install: python -m pip install 'fastf1>=3.4,<4'
 Default: python export_fastf1_archive.py --output archive.zip
 Compact JSON: python export_fastf1_archive.py --mode compact --container json --output archive.json
@@ -83,7 +83,7 @@ def main():
     parser.add_argument("--output", required=True)
     parser.add_argument("--mode", choices=["full", "compact"], default="full")
     parser.add_argument("--container", choices=["json", "zip"], default="zip")
-    parser.add_argument("--years", nargs="+", type=int, choices=range(2018, 2023), default=list(range(2018, 2023)))
+    parser.add_argument("--years", nargs="+", type=int, choices=range(2018, 2027), default=list(range(2018, 2027)))
     parser.add_argument("--cache", default=str(Path.home()/".cache"/"f1-telemetry-lab"))
     args = parser.parse_args()
     import fastf1

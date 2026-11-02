@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export per-session FastF1 JSON archives (2018-2022) for browser download.
+"""Export per-session FastF1 JSON archives (2018-2026) for browser download.
 
 Each requested session becomes ONE small JSON file (v1 envelope) under
 public/data/archives/<year>/ and manifest.json is rebuilt from every file on
@@ -30,6 +30,7 @@ FILTERS: dict[str, set[str] | None] = {
     "race": {"Race"},
     "quali": {"Qualifying", "Qualifying Sprint", "Sprint Qualifying", "Sprint Shootout"},
     "race-quali": {"Race", "Qualifying", "Sprint"},
+    "race-quali-fp": {"Race", "Qualifying", "Practice 1", "Practice 2", "Practice 3"},
     "all": None,
 }
 
@@ -55,7 +56,7 @@ def parse_rounds(spec: str) -> set[int]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--year", required=True, type=int, choices=range(2018, 2023))
+    parser.add_argument("--year", required=True, type=int, choices=range(2018, 2027))
     parser.add_argument("--mode", choices=["compact", "full"], default="compact",
                         help="compact = giro più veloce per pilota (file piccoli, consigliata)")
     parser.add_argument("--sessions", choices=sorted(FILTERS), default="race",
@@ -65,6 +66,8 @@ def main() -> None:
     parser.add_argument("--output-dir",
                         default=str(Path(__file__).resolve().parent.parent / "data" / "archives"))
     parser.add_argument("--cache", default=str(Path.home() / ".cache" / "f1-telemetry-lab"))
+    parser.add_argument("--force", action="store_true",
+                        help="riesporta anche le sessioni già presenti su disco (default: salta i file validi)")
     args = parser.parse_args()
 
     import fastf1
@@ -80,7 +83,7 @@ def main() -> None:
     wanted = FILTERS[args.sessions]
     rounds = parse_rounds(args.rounds) if args.rounds.strip() else None
 
-    exported, errors = 0, 0
+    exported, skipped, errors = 0, 0, 0
     schedule = fastf1.get_event_schedule(args.year, include_testing=False)
     for _, event in schedule.iterrows():
         rnd = int(event.RoundNumber)
@@ -94,12 +97,19 @@ def main() -> None:
                 continue
             if wanted is not None and str(name) not in wanted:
                 continue
+            path = year_dir / f"{rnd:02d}-{slug(str(event.EventName))}-{slug(str(name))}.json"
+            if path.exists() and not args.force:
+                try:
+                    if json.loads(path.read_text(encoding="utf-8")).get("format") == "f1-telemetry-lab/v1":
+                        skipped += 1
+                        continue
+                except Exception:
+                    logging.warning("File esistente illeggibile, lo riesporto: %s", path.name)
             try:
                 session = event.get_session(slot)
                 session.load(weather=False, messages=False)
                 payload = extract_session(session, args.year, args.mode)
                 blob = {"format": "f1-telemetry-lab/v1", "source": "FastF1", **payload}
-                path = year_dir / f"{rnd:02d}-{slug(str(event.EventName))}-{slug(str(name))}.json"
                 path.write_text(json.dumps(blob, separators=(",", ":"), allow_nan=False), encoding="utf-8")
                 exported += 1
                 logging.info("Esportata %s %s %s: %s giri (%.1f MB)",
@@ -132,8 +142,8 @@ def main() -> None:
     (out_dir / "manifest.json").write_text(json.dumps(manifest, separators=(",", ":"), ensure_ascii=False),
                                            encoding="utf-8")
     total = sum(e["bytes"] for e in entries)
-    logging.info("Manifest: %s sessioni, %.1f MB totali nel repository (esportate ora: %s, errori: %s)",
-                 len(entries), total / 1048576, exported, errors)
+    logging.info("Manifest: %s sessioni, %.1f MB totali nel repository (esportate ora: %s, già presenti: %s, errori: %s)",
+                 len(entries), total / 1048576, exported, skipped, errors)
     for e in entries:
         if e["bytes"] > 60 * 1024 * 1024:
             logging.warning("File oltre 60 MB (limite browser 64 MB): %s", e["file"])

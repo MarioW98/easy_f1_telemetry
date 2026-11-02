@@ -10,7 +10,7 @@ export const MAX_ZIP_BYTES = 1024 * 1024 * 1024;
 const envelope = z.object({
   format: z.literal("f1-telemetry-lab/archive-v2"),
   source: z.literal("FastF1"),
-  years: z.array(z.number().int().min(2018).max(2022)).min(1).max(5),
+  years: z.array(z.number().int().min(2018).max(2026)).min(1).max(9),
   mode: z.enum(["full", "compact"]).optional(),
 });
 export type ImportProgress = { percent: number; label: string };

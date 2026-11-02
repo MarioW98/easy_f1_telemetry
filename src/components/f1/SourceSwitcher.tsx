@@ -19,7 +19,7 @@ export function SourceSwitcher() {
       <button
         role="radio"
         aria-checked={isLocal}
-        title="Archivi FastF1 2018–2022 (scaricati dal repository o importati da file)"
+        title="Archivi FastF1 2018–2026 (scaricati dal repository o importati da file)"
         onClick={() => {
           if (!isLocal) setSource("local");
         }}

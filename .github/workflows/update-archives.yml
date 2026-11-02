@@ -25,6 +25,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: update-archives
@@ -61,7 +62,17 @@ jobs:
           fi
 
       - name: Commit archives
+        id: autocommit
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "chore(archives): ${{ github.event.inputs.year }} ${{ github.event.inputs.sessions }} (${{ github.event.inputs.mode }})"
           file_pattern: "public/data/archives/**"
+
+      # Il push fatto con GITHUB_TOKEN non attiva altri workflow: GitHub lo
+      # blocca per evitare ricorsioni (workflow_dispatch è l'unica eccezione).
+      # Quindi, dopo il commit degli archivi, richiamiamo esplicitamente il deploy.
+      - name: Trigger Pages deploy
+        if: steps.autocommit.outputs.changes_detected == 'true'
+        run: gh workflow run deploy.yml --ref main
+        env:
+          GH_TOKEN: ${{ github.token }}

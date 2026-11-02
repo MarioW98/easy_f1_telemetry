@@ -252,7 +252,7 @@ export function HistoricalPicker({
       {!mq.isFetching && !meetings.length && (
         <span className="max-w-xs text-xs text-warning">
           {year < 2023
-            ? "Importa o scarica un archivio di questo circuito e anno."
+            ? "Circuito assente dagli archivi locali di quest'anno."
             : "Circuito non disponibile in questa annata."}
         </span>
       )}

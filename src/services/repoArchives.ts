@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { importAggregated, type ImportProgress, type ImportSummary } from "@/lib/archive-import";
+import { parseArchive, registerDownloadable } from "@/lib/history";
+import { useAppStore } from "@/store/appStore";
 
 /**
  * Repository-hosted archives: small per-session JSON files committed under
@@ -44,6 +46,27 @@ export function repoSessionUrl(file: string): string {
   return `${import.meta.env.BASE_URL}data/archives/${file}`;
 }
 
+/**
+ * Manifest sessions become lazily-downloadable local entries: they show up in
+ * every year/event/session picker exactly like OpenF1 data, and the session
+ * JSON downloads transparently when the user first selects it (drivers, laps
+ * or telemetry). Newly added entries bump the store revision so the pickers
+ * refresh (matters when the manifest is re-fetched with new sessions).
+ */
+function registerRepoSessions(manifest: RepoManifest) {
+  const added = registerDownloadable(
+    manifest.sessions.map((s) => ({
+      meta: { year: s.year, event: s.event, circuit: s.circuit, session: s.session, date: s.date },
+      load: async () => {
+        const res = await fetch(repoSessionUrl(s.file));
+        if (!res.ok) throw new Error(`Download dell'archivio non riuscito (HTTP ${res.status}).`);
+        return parseArchive(await res.json());
+      },
+    })),
+  );
+  if (added > 0) useAppStore.getState().bumpRevision();
+}
+
 let cache: RepoManifest | null = null;
 
 /**
@@ -58,6 +81,7 @@ export async function fetchRepoManifest(force = false): Promise<RepoManifest> {
   if (res.status === 404) return (cache = { generated: null, sessions: [] });
   if (!res.ok) throw new Error(`Manifest archivi non disponibile (HTTP ${res.status}).`);
   cache = parseRepoManifest(await res.json());
+  registerRepoSessions(cache);
   return cache;
 }
 

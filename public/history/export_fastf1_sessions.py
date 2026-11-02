@@ -30,7 +30,7 @@ FILTERS: dict[str, set[str] | None] = {
     "race": {"Race"},
     "quali": {"Qualifying", "Qualifying Sprint", "Sprint Qualifying", "Sprint Shootout"},
     "race-quali": {"Race", "Qualifying", "Sprint"},
-    "race-quali-fp": {"Race", "Qualifying", "Practice 1", "Practice 2", "Practice 3"},
+    "race-quali-fp": {"Race", "Qualifying", "Sprint", "Practice 1", "Practice 2", "Practice 3"},
     "all": None,
 }
 

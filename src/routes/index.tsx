@@ -423,8 +423,8 @@ function Dashboard() {
       {/* Source hints */}
       {isLocal && selectableYears.length === 0 && !manifestQ.isFetching && (
         <p className="border-b border-border bg-warning/10 px-3 py-1.5 text-xs text-warning">
-          Nessun archivio locale installato: apri «Archivi» per scaricare le sessioni dal
-          repository, oppure importa un file, oppure passa a «OpenF1 Live» (2023+).
+          Elenco archivi non disponibile (manifest vuoto o offline): apri «Archivi» e premi
+          «Ricarica elenco», importa un file, oppure passa a «OpenF1 Live» (2023+).
         </p>
       )}
       {isLocal &&
@@ -433,8 +433,8 @@ function Dashboard() {
         meetingsQ.isSuccess &&
         meetings.length === 0 && (
           <p className="border-b border-border bg-warning/10 px-3 py-1.5 text-xs text-warning">
-            Dati locali non disponibili per quest'anno: scarica le sessioni da «Archivi» o prova con
-            «OpenF1 Live».
+            Nessun evento negli archivi per quest'anno: scegli un altro anno, scarica le sessioni
+            da «Archivi» o prova con «OpenF1 Live».
           </p>
         )}
 

@@ -87,8 +87,8 @@ export function ArchiveManager({
           <DialogTitle>Archivi telemetria nel repository</DialogTitle>
           <DialogDescription>
             Sessioni FastF1 2018–2026 compilate dal workflow «Update F1 Archives» (modalità
-            compatta: giro più veloce per pilota). Scarica una sessione per installarla tra i dati
-            locali; nulla viene scaricato finché non lo chiedi.
+            compatta: giro più veloce per pilota). Scaricale da qui oppure selezionale direttamente
+            dagli elenchi in alto: il download parte in automatico alla prima selezione.
           </DialogDescription>
         </DialogHeader>
 

@@ -68,6 +68,8 @@ const identities = new Map<string, number>();
 const meetings = new Map<string, number>();
 const lazyCache = new Map<number, HistoricalArchive>();
 const pending = new Map<number, Promise<HistoricalArchive>>();
+/** Identities of sessions whose full data has actually been loaded into memory. */
+const materialized = new Set<string>();
 let seq = -1;
 const identity = (a: SessionMetadata) =>
   JSON.stringify([a.year, a.event, a.circuit, a.session, a.date]);
@@ -101,6 +103,7 @@ function store(stored: Stored) {
   const id = identity(stored.meta);
   const key = identities.get(id) ?? seq--;
   identities.set(id, key);
+  if (stored.data) materialized.add(id);
   const eventId = eventIdentity(stored.meta);
   // The first session's key doubles as its event key for backwards compatibility.
   if (!meetings.has(eventId)) meetings.set(eventId, key);
@@ -121,16 +124,31 @@ export function installSessions(entries: Stored[]) {
   }
   return entries.map(store);
 }
+/**
+ * Register manifest-listed sessions that are not installed yet as virtual
+ * entries with a lazy loader: they appear in the year/event/session pickers
+ * immediately (OpenF1-like browsing) and the JSON downloads transparently on
+ * first use (drivers, laps or telemetry of that session). Returns how many
+ * entries were newly registered.
+ */
+export function registerDownloadable(
+  entries: { meta: SessionMetadata; load: () => Promise<HistoricalArchive> }[],
+): number {
+  let added = 0;
+  for (const entry of entries) {
+    const id = identity(entry.meta);
+    if (identities.has(id)) continue;
+    store({ meta: entry.meta, load: entry.load });
+    added += 1;
+  }
+  return added;
+}
 export function availableHistoricalYears() {
   return [...new Set([...archives.values()].map((s) => s.meta.year))].sort((a, b) => b - a);
 }
-/** Identity keys of installed sessions, for matching repo-manifest entries. */
+/** Identity keys of installed (data-bearing) sessions, for matching repo-manifest entries. */
 export function installedArchiveIdentities(): Set<string> {
-  return new Set(
-    [...archives.values()].map(
-      ({ meta: a }) => `${a.year}|${a.event}|${a.circuit}|${a.session}|${a.date}`,
-    ),
-  );
+  return new Set(materialized);
 }
 async function getArchive(key: number) {
   const stored = archives.get(key);

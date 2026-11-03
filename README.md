@@ -29,7 +29,7 @@ La cosa più divertente è il **confronto**: puoi mettere sulla stessa pista fin
 1. Apri [il sito](https://mariow98.github.io/easy_f1_telemetry/).
 2. In alto a destra scegli da dove prendere i dati:
    - **OpenF1 Live** → stagioni dal 2023 al 2026, scaricate al volo da internet;
-   - **Dati Locali** → stagioni già pronte qui nel repository (per ora **2021** e **2022**).
+   - **Dati Locali** → stagioni già pronte qui nel repository (per ora **2021–2024**).
 3. Seleziona **Anno → Gran Premio → Sessione** (Gara, Qualifying o Prove libere).
 4. Per ogni pilota che vuoi confrontare scegli **anno, sessione, pilota e giro**, poi premi **CARICA ANALISI**.
 5. Fatto: premi ▶ e l'analisi si anima — mappa in alto, grafici che scorrono lungo la pagina.
@@ -64,8 +64,9 @@ La cosa più divertente è il **confronto**: puoi mettere sulla stessa pista fin
 ### Cosa c'è, oggi
 
 - **OpenF1 Live**: 2023 → 2026 (gli eventi futuri compaiono solo dopo che sono corsi).
-- **Dati Locali**: **2021** (105 sessioni) e **2022** (110 sessioni, incluse 3 Sprint) — gare, qualifiche e prove libere, giro più veloce per pilota.
-- Gli altri anni (2018–2020) e le stagioni recenti si possono generare e aggiungere con due click da GitHub — vedi [Archivi e dati](#-archivi-e-dati) più avanti.
+- **Dati Locali**: **2021–2024** — gare, qualifiche, prove libere e Sprint, il giro più veloce di ogni pilota:
+  **2021** (105 sessioni), **2022** (110, incluse 3 Sprint), **2023** (110, 6 weekend Sprint) e **2024** (120, 6 weekend Sprint, incluse le Sprint Qualifying).
+- Gli altri anni (2018–2020) e le stagioni future si possono generare e aggiungere con due click da GitHub — vedi [Archivi e dati](#-archivi-e-dati) più avanti.
 
 ---
 
@@ -75,7 +76,7 @@ La cosa più divertente è il **confronto**: puoi mettere sulla stessa pista fin
 
 | | **OpenF1 Live** | **Dati Locali** |
 |---|---|---|
-| Anni | 2023–2026 | 2018–2026 possibili · oggi 2021, 2022 |
+| Anni | 2023–2026 | 2018–2026 possibili · oggi 2021–2024 |
 | Da dove | API pubblica [OpenF1](https://openf1.org) | file JSON nel repository, o file importati |
 | Giri disponibili | qualsiasi giro cronometrato | il giro più veloce di ogni pilota (archivi compatti) |
 | Internet | necessario | solo al primo scaricamento di ogni sessione |
@@ -159,13 +160,17 @@ public/data/archives/
 
 ### Cosa c'è oggi
 
-| Anno | Sessioni | Contenuto |
-|---|---|---|
-| **2021** | 105 | 22 gare + 22 qualifiche + prove libere |
-| **2022** | 110 | 22 gare + 22 qualifiche + prove libere + 3 Sprint |
-| 2018–2020 | da generare | la pipeline supporta tutto il 2018–2026 |
+| Anno | Sessioni | Contenuto | Sorgente export |
+|---|---|---|---|
+| **2021** | 105 | 22 GP: gare + qualifiche + prove libere | FastF1 |
+| **2022** | 110 | 22 GP: gare + qualifiche + prove libere + 3 Sprint | FastF1 |
+| **2023** | 110 | 22 GP: gare + qualifiche + prove libere + 6 Sprint + Sprint Qualifying | OpenF1 |
+| **2024** | 120 | 24 GP: gare + qualifiche + prove libere + 6 Sprint + Sprint Qualifying | OpenF1 |
+| 2018–2020 | da generare | la pipeline supporta tutto il 2018–2026 | FastF1 |
 
-Progetto in corso: gli anni vengono aggiunti **uno alla volta**, completi di gara, qualifiche e prove libere. 2021 e 2022 sono i primi due consegnati e verificati.
+Dal 2023 in poi l'export usa **api.openf1.org** (gli stessi flussi F1 che già alimenta la modalità Live): formato campioni e scala delle coordinate sono identici a quelli FastF1, e l'app li tratta alla stregua degli altri. Nel 2023–2024 i weekend Sprint hanno anche la **Sprint Qualifying**, che appare come sessione a sé nel selettore.
+
+Progetto in corso: gli anni vengono aggiunti **uno alla volta**, completi di gara, qualifiche e prove libere. 2021–2024 sono consegnati e verificati.
 
 ### Aggiungere un anno — via GitHub (consigliato, zero setup locale)
 
@@ -191,6 +196,10 @@ python public/history/export_fastf1_sessions.py --year 2018 --sessions race-qual
 #   --force               rigenera anche le sessioni già presenti
 #   --sessions race       solo le gare (default)
 
+# per il 2023+ c'è anche l'esportatore OpenF1 (stesso formato, niente FastF1):
+python -m pip install 'requests>=2.28'
+python public/history/export_openf1_sessions.py --year 2023 --sessions all
+
 git add public/data/archives
 git commit -m "chore(archives): 2018 race-quali-fp (compact)"
 git push   # il deploy su Pages parte da solo
@@ -203,10 +212,11 @@ Lo script è **idempotente** (salta le sessioni già esportate), ricostruisce `m
 | Script | Cosa produce |
 |---|---|
 | `export_fastf1_sessions.py` | Un JSON per sessione, formato del repository (è quello usato dal workflow) |
+| `export_openf1_sessions.py` | Un JSON per sessione via [api.openf1.org](https://openf1.org) (2023+), stesso identico formato: alternativa quando il CDN F1 blocca FastF1, ~3 richieste/s con finestre temporali raggruppate |
 | `export_fastf1_archive.py` | Archivio completo o compatto in ZIP/JSON aggregato (`archive-v2`), per l'import dal browser |
 | `export_fastf1.py` | Un singolo evento (anno + GP + sessione), giro più veloce per pilota |
 
-Tutti richiedono `fastf1>=3.4,<4` e usano una cache locale per non riscaricare due volte la stessa sessione.
+Gli exporter FastF1 richiedono `fastf1>=3.4,<4`, quello OpenF1 solo `requests`; tutti usano file già presenti su disco come checkpoint di ripresa.
 
 ---
 
@@ -265,7 +275,7 @@ public/
 
 ## 📜 Fonti e note legali
 
-- **OpenF1** — API pubblica ([openf1.org](https://openf1.org)) per le stagioni 2023+. Il tier gratuito consente ≈3 richieste al secondo: il client le mette in coda e le cache da solo.
+- **OpenF1** — API pubblica ([openf1.org](https://openf1.org)) per le stagioni 202+, usata sia dalla modalità Live sia dall'export degli archivi 2023–2024. Il tier gratuito consente ≈3 richieste al secondo: il client e l'exporter le mettono in coda e le limitano da soli.
 - **FastF1** — libreria open source (MIT) che legge i dati di timing pubblicati da formula1.com. I dati di timing hanno diritti separati dal software: lo strumento li usa per accesso personale; le pipeline dichiarano esplicitamente di non concedere diritti di ridistribuzione.
 - Progetto **non ufficiale**, senza alcuna affiliazione con Formula One Group, FIA o i team. I dati sono offerti «così come sono», senza garanzia di correttezza o completezza: usali per studio e divertimento.
 

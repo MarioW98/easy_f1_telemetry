@@ -12,7 +12,9 @@ export const sessionMetadataSchema = z.object({
 });
 const archiveSchema = sessionMetadataSchema.extend({
   format: z.literal("f1-telemetry-lab/v1"),
-  source: z.literal("FastF1"),
+  // "FastF1" = export pipeline FastF1 (2018-2022), "OpenF1" = export pipeline
+  // api.openf1.org (2023+, stesso formato campioni: vedi public/history/).
+  source: z.enum(["FastF1", "OpenF1"]),
   drivers: z
     .array(
       z.object({

@@ -279,9 +279,6 @@ export async function archiveLapData(
   result.tel.forEach((s) => {
     s.drsOpen = states.get(Math.round(s.t * 1000)) ?? s.drsOpen;
   });
-  // Coordinate frame identity: the exported session metadata (one exported
-  // session = one /location or FastF1 coordinate frame).
-  result.coordsSpace = `local:${a.year}:${a.event}:${a.circuit}:${a.session}:${a.date}`;
   return result;
 }
 

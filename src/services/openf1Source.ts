@@ -43,8 +43,6 @@ export const openF1Source: DataSource = {
       api.carData(entry.session, entry.d, from, to),
       api.location(entry.session, entry.d, from, to),
     ]);
-    const data = buildLapData(entry.d, entry.lap, win, car, loc);
-    // Coordinate frame identity: one OpenF1 session = one /location frame.
-    return { ...data, coordsSpace: `openf1:${entry.session}` };
+    return buildLapData(entry.d, entry.lap, win, car, loc);
   },
 };

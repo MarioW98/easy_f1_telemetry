@@ -11,7 +11,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import type { LapData, PosSample } from "@/lib/telemetry";
-import { positionAt, telemetryAt } from "@/lib/telemetry";
+import { MAX_POS_GAP, positionAt, telemetryAt } from "@/lib/telemetry";
 
 export interface MapDriver {
   lap: LapData;
@@ -39,8 +39,51 @@ interface Inspect {
 const MIN_OUTLINE_POINTS = 60;
 const MAX_ZOOM = 14;
 const PAD_FRAC = 0.04;
-/** position samples farther apart than this are NOT connected (no invented links) */
-const POS_BREAK_S = 1.2;
+
+/** Spezza i campioni di posizione in segmenti continui: un buco temporale maggiore di
+ *  MAX_POS_GAP inizia un nuovo segmento; i campioni isolati vengono scartati
+ *  (nessun collegamento inventato tra lacune). */
+export function splitAtGaps(pts: PosSample[], gap: number = MAX_POS_GAP): PosSample[][] {
+  const segs: PosSample[][] = [];
+  let cur: PosSample[] = [];
+  for (const p of pts) {
+    if (cur.length === 0 || p.t - cur[cur.length - 1]!.t <= gap) cur.push(p);
+    else {
+      if (cur.length >= 2) segs.push(cur);
+      cur = [p];
+    }
+  }
+  if (cur.length >= 2) segs.push(cur);
+  return segs;
+}
+
+/** Percorso SVG dei segmenti disegnati fino all'istante `upTo` (y già ribaltata come
+ *  nel viewBox). La punta è interpolata solo DENTRO il segmento corrente: non attraversa
+ *  mai una lacuna e non supera mai l'ultimo campione registrato. */
+export function trailPath(segs: PosSample[][], upTo: number): string {
+  const n = (v: number) => String(Math.round(v));
+  let d = "";
+  for (const seg of segs) {
+    if (seg.length === 0 || upTo < seg[0]!.t) continue;
+    let sub = `M${n(seg[0]!.x)},${n(-seg[0]!.y)}`;
+    for (let i = 1; i < seg.length; i++) {
+      const p = seg[i]!;
+      if (p.t <= upTo) {
+        sub += ` L${n(p.x)},${n(-p.y)}`;
+      } else {
+        const a = seg[i - 1]!;
+        if (upTo > a.t) {
+          const f = (upTo - a.t) / (p.t - a.t);
+          sub += ` L${n(a.x + (p.x - a.x) * f)},${n(-(a.y + (p.y - a.y) * f))}`;
+        }
+        break;
+      }
+    }
+    if (d) d += " ";
+    d += sub;
+  }
+  return d;
+}
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 /** center clamp: window must stay over the track (no pan at fit zoom, bounded pan when zoomed) */
@@ -51,10 +94,13 @@ export function TrackMap({
   drivers,
   time,
   onPickTime,
+  showTrails = true,
 }: {
   drivers: MapDriver[];
   time: number;
   onPickTime?: (t: number) => void;
+  /** true = linee reali sul circuito; false = solo nastro circuito + punti posizione */
+  showTrails?: boolean;
 }) {
   // Per-driver in-lap samples, kept in time order (the only geometry source: /location X,Y).
   const series = useMemo(
@@ -74,23 +120,15 @@ export function TrackMap({
     return null;
   }, [series]);
 
-  /** Continuous polyline in sample order; a break (>POS_BREAK_S) starts a new subpath "M". */
-  const buildPath = (pts: PosSample[], upTo = Infinity) => {
-    let d = "";
-    let prev: PosSample | null = null;
-    for (const p of pts) {
-      if (p.t > upTo) break;
-      d += !prev || p.t - prev.t > POS_BREAK_S ? "M" : "L";
-      d += `${p.x.toFixed(0)},${(-p.y).toFixed(0)}`;
-      prev = p;
-    }
-    return d;
-  };
-
   const paths = useMemo(
-    () => series.filter((s) => s.pts.length >= 2).map((s) => ({ ...s, full: buildPath(s.pts) })),
-    // buildPath is a pure local helper; series is the only input
-
+    () =>
+      series
+        .filter((s) => s.pts.length >= 2)
+        .map((s) => {
+          const segs = splitAtGaps(s.pts);
+          return { ...s, segs, full: trailPath(segs, Infinity) };
+        })
+        .filter((s) => s.full !== ""),
     [series],
   );
 
@@ -117,7 +155,7 @@ export function TrackMap({
     const pad = Math.max(w, h) * PAD_FRAC;
     // y is flipped (OpenF1 y grows upward); uniform scale keeps proportions
     const vb = { x: minX - pad, y: -maxY - pad, w: w + pad * 2, h: h + pad * 2 };
-    return { vb, d: buildPath(outline.pts), unit: Math.max(w, h) / 100 };
+    return { vb, d: trailPath(splitAtGaps(outline.pts), Infinity), unit: Math.max(w, h) / 100 };
   }, [series, outline]);
 
   const [zoom, setZoom] = useState(1);
@@ -378,60 +416,61 @@ export function TrackMap({
           strokeLinecap="round"
         />
         {/* trajectories: reference lap thicker; progressive mode draws up to the replay time */}
-        {paths.map(({ d, pts, full: fullD }, i) => {
-          const w = u * (d.reference ? 1.25 : 0.85);
-          const solidD = progressive ? buildPath(pts, Math.min(time, d.lap.duration)) : fullD;
-          return (
-            <g key={d.label + i}>
-              {progressive && (
-                <path
-                  d={fullD}
-                  fill="none"
-                  stroke={d.color}
-                  strokeWidth={w * 0.55}
-                  strokeDasharray={dashU(d.dash)}
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                  opacity={0.22}
-                  className="cursor-pointer"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    pickOnPath(paths[i]!, e.clientX, e.clientY);
-                  }}
-                />
-              )}
-              {solidD && (
-                <>
+        {showTrails &&
+          paths.map(({ d, segs, pts, full: fullD }, i) => {
+            const w = u * (d.reference ? 1.25 : 0.85);
+            const solidD = progressive ? trailPath(segs, Math.min(time, d.lap.duration)) : fullD;
+            return (
+              <g key={d.label + i}>
+                {progressive && (
                   <path
-                    d={solidD}
-                    fill="none"
-                    stroke="var(--color-background)"
-                    strokeWidth={w + u * 0.45}
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                    opacity={0.85}
-                    className="pointer-events-none"
-                  />
-                  <path
-                    d={solidD}
+                    d={fullD}
                     fill="none"
                     stroke={d.color}
-                    strokeWidth={w}
+                    strokeWidth={w * 0.55}
                     strokeDasharray={dashU(d.dash)}
                     strokeLinejoin="round"
                     strokeLinecap="round"
-                    opacity={d.reference ? 1 : 0.9}
+                    opacity={0.22}
                     className="cursor-pointer"
                     onClick={(e) => {
                       e.stopPropagation();
                       pickOnPath(paths[i]!, e.clientX, e.clientY);
                     }}
                   />
-                </>
-              )}
-            </g>
-          );
-        })}
+                )}
+                {solidD && (
+                  <>
+                    <path
+                      d={solidD}
+                      fill="none"
+                      stroke="var(--color-background)"
+                      strokeWidth={w + u * 0.45}
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      opacity={0.85}
+                      className="pointer-events-none"
+                    />
+                    <path
+                      d={solidD}
+                      fill="none"
+                      stroke={d.color}
+                      strokeWidth={w}
+                      strokeDasharray={dashU(d.dash)}
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      opacity={d.reference ? 1 : 0.9}
+                      className="cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        pickOnPath(paths[i]!, e.clientX, e.clientY);
+                      }}
+                    />
+                  </>
+                )}
+              </g>
+            );
+          })}
         {/* sampled points (optional): raw /location samples on top of the lines, no interpolation */}
         {showPts &&
           paths.map(({ d, pts }) => (
@@ -533,27 +572,29 @@ export function TrackMap({
           </button>
         ))}
       </div>
-      {/* display options */}
-      <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
-        <button
-          aria-pressed={progressive}
-          title="Disegna le traiettorie fino all'istante della riproduzione"
-          onClick={() => setProgressive((p) => !p)}
-          className={pill(progressive)}
-        >
-          <Route className="h-3 w-3" />
-          <span className="hidden sm:inline">Traiettoria progressiva</span>
-        </button>
-        <button
-          aria-pressed={showPts}
-          title="Mostra i campioni grezzi di /location"
-          onClick={() => setShowPts((p) => !p)}
-          className={pill(showPts)}
-        >
-          <CircleDot className="h-3 w-3" />
-          <span className="hidden sm:inline">Punti campionati</span>
-        </button>
-      </div>
+      {/* display options (solo con le traiettorie attive) */}
+      {showTrails && (
+        <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
+          <button
+            aria-pressed={progressive}
+            title="Disegna le traiettorie fino all'istante della riproduzione"
+            onClick={() => setProgressive((p) => !p)}
+            className={pill(progressive)}
+          >
+            <Route className="h-3 w-3" />
+            <span className="hidden sm:inline">Traiettoria progressiva</span>
+          </button>
+          <button
+            aria-pressed={showPts}
+            title="Mostra i campioni grezzi di /location"
+            onClick={() => setShowPts((p) => !p)}
+            className={pill(showPts)}
+          >
+            <CircleDot className="h-3 w-3" />
+            <span className="hidden sm:inline">Punti campionati</span>
+          </button>
+        </div>
+      )}
       {inspect && (
         <div
           role="dialog"
@@ -612,7 +653,9 @@ export function TrackMap({
         <span className="hidden sm:inline">
           Rotellina/pinch = zoom sulla curva · trascina = sposta ·{" "}
         </span>
-        clic su una traiettoria = valori · ● inizio giro
+        {showTrails
+          ? "clic su una traiettoria = valori · ● inizio giro"
+          : "traiettorie disattive · ● inizio giro"}
       </div>
     </>
   );

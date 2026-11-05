@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -11,6 +11,7 @@ import {
   Play,
   RefreshCw,
   RotateCcw,
+  Route as RouteIcon,
   Eye,
   EyeOff,
   Plus,
@@ -113,6 +114,10 @@ function Dashboard() {
   const toggleSeries = useAppStore((s) => s.toggleSeries);
   const setFocus = useAppStore((s) => s.setFocus);
   const bumpRevision = useAppStore((s) => s.bumpRevision);
+
+  // Vista traiettorie: le linee reali (X,Y di /location) sul circuito.
+  // Attive → la mappa si ingrandisce per leggere la linea rispetto alle curve.
+  const [showTrails, setShowTrails] = useState(true);
 
   // ---- source-aware data ----
   const { meetingsQ, sessionsQ, driversQ, lapsQ } = useTelemetryData();
@@ -520,10 +525,30 @@ function Dashboard() {
       ) : loaded.length ? (
         <main className="grid flex-1 grid-cols-1 gap-2 p-2 xl:grid-cols-[1fr_300px]">
           <div className="flex min-w-0 flex-col">
-            <div className="f1-panel h-[420px] shrink-0 overflow-hidden touch-pan-y sm:h-[540px] xl:h-[680px]">
+            <div className="mb-1 flex shrink-0 flex-wrap items-center gap-1">
+              <span className="f1-label mr-2">Mappa · traiettorie reali (X,Y di /location)</span>
+              <Button
+                variant="ghost"
+                aria-pressed={showTrails}
+                title="Attiva o disattiva le traiettorie: con le traiettorie attive il circuito viene mostrato più grande per capire se la linea è interna o esterna in curva"
+                onClick={() => setShowTrails((v) => !v)}
+                className={`inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[11px] ${showTrails ? "text-foreground" : "text-muted-foreground"}`}
+              >
+                <RouteIcon className="h-3 w-3" />
+                {showTrails ? "Traiettorie ON" : "Traiettorie OFF"}
+              </Button>
+            </div>
+            <div
+              className={`f1-panel shrink-0 overflow-hidden touch-pan-y ${
+                showTrails
+                  ? "h-[560px] sm:h-[720px] xl:h-[900px] 2xl:h-[1000px]"
+                  : "h-[420px] sm:h-[540px] xl:h-[680px]"
+              }`}
+            >
               <TrackMap
                 drivers={mapDrivers}
                 time={t}
+                showTrails={showTrails}
                 onPickTime={(x) => {
                   pb.setPlaying(false);
                   pb.seek(x);

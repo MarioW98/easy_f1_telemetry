@@ -1,7 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Maximize2, ZoomIn, ZoomOut, X } from "lucide-react";
-import type { LapData } from "@/lib/telemetry";
-import { positionAt, telemetryAt } from "@/lib/telemetry";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  CircleDot,
+  Eye,
+  EyeOff,
+  Maximize2,
+  Spline,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
+import type { LapData, PosSample } from "@/lib/telemetry";
+import { MAX_POS_GAP, positionAt, telemetryAt } from "@/lib/telemetry";
 
 export interface MapDriver {
   lap: LapData;
@@ -28,6 +38,94 @@ interface Inspect {
 
 const MIN_OUTLINE_POINTS = 60;
 
+/**
+ * Splits chronological samples where two consecutive ones are more than
+ * MAX_POS_GAP apart. Across such temporal holes nothing is ever drawn:
+ * segments stay disconnected (no artificial links), matching positionAt.
+ */
+export function splitAtGaps(pts: PosSample[]): PosSample[][] {
+  const segs: PosSample[][] = [];
+  let cur: PosSample[] = [pts[0]!];
+  for (let i = 1; i < pts.length; i++) {
+    const p = pts[i]!;
+    if (p.t - cur[cur.length - 1]!.t > MAX_POS_GAP) {
+      if (cur.length > 1) segs.push(cur);
+      cur = [p];
+    } else {
+      cur.push(p);
+    }
+  }
+  if (cur.length > 1) segs.push(cur);
+  return segs;
+}
+
+/** One SVG "d" per driver: disconnected subpaths joined by M commands. */
+const joinSegs = (segs: PosSample[][]): string =>
+  segs
+    .map((seg) =>
+      seg.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(0)},${(-p.y).toFixed(0)}`).join(" "),
+    )
+    .join(" ");
+
+/**
+ * Trajectory grown up to replay time `time`: recorded samples with t <= time
+ * plus (at most) the interpolated tip inside the current segment — never
+ * across a gap. Samples only, no geometry from telemetry.
+ */
+export function trailPath(segs: PosSample[][], time: number): string {
+  let out = "";
+  for (const seg of segs) {
+    if (seg[0]!.t > time) break; // segments are chronological
+    let last = 0;
+    while (last + 1 < seg.length && seg[last + 1]!.t <= time) last++;
+    out += joinSegs([seg.slice(0, last + 1)]);
+    const a = seg[last]!;
+    const b = seg[last + 1];
+    if (b && b.t > time && time > a.t) {
+      const f = (time - a.t) / (b.t - a.t);
+      out += ` L${(a.x + (b.x - a.x) * f).toFixed(0)},${(-(a.y + (b.y - a.y) * f)).toFixed(0)}`;
+    }
+    out += " ";
+  }
+  return out.trim();
+}
+
+/** Original location samples as tiny dots (opt-in). Memoised so the replay
+    tick does not re-render thousands of circles: it refreshes only when the
+    drivers, their visibility or the zoom change. */
+const PointsLayer = memo(function PointsLayer({
+  entries,
+  u,
+}: {
+  entries: { key: string; color: string; pts: PosSample[] }[];
+  u: number;
+}) {
+  if (!entries.length) return null;
+  return (
+    <g className="pointer-events-none" shapeRendering="optimizeSpeed">
+      {entries.map((e) =>
+        e.pts.map((p, i) => (
+          <circle
+            key={`${e.key}-${i}`}
+            cx={p.x}
+            cy={-p.y}
+            r={u * 0.32}
+            fill={e.color}
+            fillOpacity={0.85}
+          />
+        )),
+      )}
+    </g>
+  );
+});
+
+interface TrajEntry {
+  d: MapDriver;
+  pts: PosSample[];
+  segments: PosSample[][];
+  full: string;
+}
+
 export function TrackMap({
   drivers,
   time,
@@ -37,12 +135,18 @@ export function TrackMap({
   time: number;
   onPickTime?: (t: number) => void;
 }) {
-  // Outline: the first driver with enough in-lap samples, kept in time order.
+  // Outline: the first driver with enough in-lap samples, kept in time order,
+  // split at temporal gaps like every other trajectory.
   const outline = useMemo(() => {
     for (const d of drivers) {
       const pts = d.lap.pos.filter((p) => p.t >= 0 && p.t <= d.lap.duration);
       if (pts.length >= MIN_OUTLINE_POINTS && d.lap.coverage.maxPosGap < 5)
-        return { pts, from: d.label };
+        return {
+          segs: splitAtGaps(pts),
+          count: pts.length,
+          first: pts[0]!,
+          from: d.label,
+        };
     }
     return null;
   }, [drivers]);
@@ -53,44 +157,77 @@ export function TrackMap({
       maxX = -Infinity,
       minY = Infinity,
       maxY = -Infinity;
-    for (const p of outline.pts) {
-      minX = Math.min(minX, p.x);
-      maxX = Math.max(maxX, p.x);
-      minY = Math.min(minY, p.y);
-      maxY = Math.max(maxY, p.y);
+    for (const seg of outline.segs) {
+      for (const p of seg) {
+        minX = Math.min(minX, p.x);
+        maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y);
+        maxY = Math.max(maxY, p.y);
+      }
     }
     const w = maxX - minX,
       h = maxY - minY;
     const pad = Math.max(w, h) * 0.06;
     // y is flipped (OpenF1 y grows upward); uniform scale keeps proportions
     const vb = { x: minX - pad, y: -maxY - pad, w: w + pad * 2, h: h + pad * 2 };
-    const d = outline.pts
-      .map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(0)},${(-p.y).toFixed(0)}`)
-      .join(" ");
-    return { vb, d, unit: Math.max(w, h) / 100 };
+    return { vb, d: joinSegs(outline.segs), unit: Math.max(w, h) / 100 };
   }, [outline]);
 
-  // Per-driver trajectory paths (clickable).
+  // Per-driver trajectories: chronological XY samples only, split at gaps,
+  // each in its driver colour, all on the same coordinate system.
   const paths = useMemo(
     () =>
       drivers
         .map((d) => {
           const pts = d.lap.pos.filter((p) => p.t >= 0 && p.t <= d.lap.duration);
           if (pts.length < 2) return null;
-          return {
-            d,
-            path: pts
-              .map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(0)},${(-p.y).toFixed(0)}`)
-              .join(" "),
-            pts,
-          };
+          const segments = splitAtGaps(pts);
+          if (!segments.length) return null;
+          return { d, pts, segments, full: joinSegs(segments) };
         })
-        .filter(Boolean) as {
-        d: MapDriver;
-        path: string;
-        pts: { t: number; x: number; y: number }[];
-      }[],
+        .filter(Boolean) as TrajEntry[],
     [drivers],
+  );
+
+  // Trajectory visibility (map only — the telemetry charts are untouched).
+  const [showTrajs, setShowTrajs] = useState(true);
+  const [showPoints, setShowPoints] = useState(false);
+  const [hiddenTraj, setHiddenTraj] = useState<Set<string>>(new Set());
+  const toggleTraj = (label: string) =>
+    setHiddenTraj((s) => {
+      const n = new Set(s);
+      if (n.has(label)) n.delete(label);
+      else n.add(label);
+      return n;
+    });
+
+  const visiblePaths = useMemo(
+    () => paths.filter((e) => !hiddenTraj.has(e.d.label)),
+    [paths, hiddenTraj],
+  );
+  const visibleDrivers = useMemo(
+    () => drivers.filter((d) => !hiddenTraj.has(d.label)),
+    [drivers, hiddenTraj],
+  );
+  const pointEntries = useMemo(
+    () =>
+      showPoints ? visiblePaths.map((e) => ({ key: e.d.label, color: e.d.color, pts: e.pts })) : [],
+    [showPoints, visiblePaths],
+  );
+
+  // Growing portion of each trajectory at the current replay time.
+  const trails = useMemo(
+    () =>
+      showTrajs
+        ? visiblePaths.map((e) => ({
+            key: e.d.label,
+            color: e.d.color,
+            reference: e.d.reference === true,
+            done: time >= e.d.lap.duration,
+            d: time < e.d.lap.duration ? trailPath(e.segments, time) : null,
+          }))
+        : [],
+    [showTrajs, visiblePaths, time],
   );
 
   const [zoom, setZoom] = useState(1);
@@ -137,14 +274,10 @@ export function TrackMap({
     return { x: p.x, y: p.y };
   };
 
-  const pickOnPath = (
-    entry: { d: MapDriver; pts: { t: number; x: number; y: number }[] },
-    clientX: number,
-    clientY: number,
-  ) => {
+  const pickOnPath = (entry: TrajEntry, clientX: number, clientY: number) => {
     const p = userPoint(clientX, clientY);
     if (!p) return;
-    let best: { t: number; x: number; y: number } | null = null;
+    let best: PosSample | null = null;
     let bestDist = Infinity;
     for (const s of entry.pts) {
       const dist = (s.x - p.x) ** 2 + (s.y + p.y) ** 2;
@@ -221,33 +354,51 @@ export function TrackMap({
           strokeLinejoin="round"
           strokeLinecap="round"
         />
-        {/* per-driver trajectories: reference lap thicker and fully opaque */}
-        {paths.map(({ d, path }, i) => (
-          <path
-            key={d.label + i}
-            d={path}
-            fill="none"
-            stroke={d.color}
-            strokeWidth={u * (d.reference ? 1.1 : 0.65)}
-            strokeDasharray={d.dash}
-            strokeLinejoin="round"
-            strokeLinecap="round"
-            opacity={d.reference ? 1 : 0.8}
-            className="cursor-pointer"
-            onClick={(e) => {
-              e.stopPropagation();
-              pickOnPath(paths[i]!, e.clientX, e.clientY);
-            }}
-          />
-        ))}
+        {/* complete trajectories: faint while the replay still has to reach their end */}
+        {showTrajs &&
+          visiblePaths.map(({ d, full }, i) => (
+            <path
+              key={d.label + i}
+              d={full}
+              fill="none"
+              stroke={d.color}
+              strokeWidth={u * (d.reference ? 1.1 : 0.65)}
+              strokeDasharray={d.dash}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              opacity={time < d.lap.duration ? 0.45 : d.reference ? 1 : 0.8}
+              className="cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                pickOnPath(visiblePaths[i]!, e.clientX, e.clientY);
+              }}
+            />
+          ))}
+        {/* original samples, one tiny dot each (opt-in) */}
+        <PointsLayer entries={pointEntries} u={u} />
+        {/* progressive trajectories: recorded samples only, up to the replay time */}
+        {trails.map((tr, i) =>
+          tr.d ? (
+            <path
+              key={tr.key + "-trail-" + i}
+              d={tr.d}
+              fill="none"
+              stroke={tr.color}
+              strokeWidth={u * (tr.reference ? 1.35 : 0.9)}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              opacity={0.95}
+            />
+          ) : null,
+        )}
         {/* lap start marker (first in-lap sample, not assumed origin) */}
         <circle
-          cx={outline.pts[0]!.x}
-          cy={-outline.pts[0]!.y}
+          cx={outline.first.x}
+          cy={-outline.first.y}
           r={u * 0.9}
           fill="var(--color-primary)"
         />
-        {drivers.map((d, i) => {
+        {visibleDrivers.map((d, i) => {
           const p = positionAt(d.lap.pos, Math.min(time, d.lap.duration));
           if (!p) return null;
           return (
@@ -278,40 +429,104 @@ export function TrackMap({
           );
         })}
       </svg>
+      {/* per-driver trajectory visibility (map only) */}
+      <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
+        {drivers.map((d) => {
+          const hid = hiddenTraj.has(d.label);
+          return (
+            <button
+              key={d.label}
+              type="button"
+              aria-pressed={!hid}
+              title={
+                hid
+                  ? `Mostra la traiettoria di ${d.label}`
+                  : `Nascondi la traiettoria di ${d.label}`
+              }
+              onClick={() => toggleTraj(d.label)}
+              className={`flex items-center gap-1.5 rounded border px-1.5 py-0.5 font-mono text-[10px] backdrop-blur-sm transition-colors ${
+                hid
+                  ? "border-border bg-card/60 text-muted-foreground"
+                  : "border-border bg-card/85 text-foreground hover:border-primary/40"
+              }`}
+            >
+              <span
+                className="h-0.5 w-4 rounded-full"
+                style={{ background: d.color, opacity: hid ? 0.4 : 1 }}
+              />
+              <span style={{ color: hid ? undefined : d.color }}>
+                {d.number} {d.label}
+              </span>
+              {hid ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+            </button>
+          );
+        })}
+      </div>
       <div className="absolute right-2 top-2 flex flex-col gap-1">
         {[
           {
+            id: "trajs",
+            icon: Spline,
+            label: showTrajs ? "Nascondi traiettorie" : "Mostra traiettorie",
+            on: showTrajs,
+            fn: () => {
+              dismiss();
+              setShowTrajs((v) => !v);
+            },
+          },
+          {
+            id: "points",
+            icon: CircleDot,
+            label: showPoints ? "Nascondi punti campione" : "Mostra punti campione",
+            on: showPoints,
+            fn: () => {
+              dismiss();
+              setShowPoints((v) => !v);
+            },
+          },
+          {
+            id: "zin",
             icon: ZoomIn,
             label: "Zoom avanti",
+            on: false,
             fn: () => {
               dismiss();
               setZoom((z) => Math.min(8, z * 1.3));
             },
           },
           {
+            id: "zout",
             icon: ZoomOut,
             label: "Zoom indietro",
+            on: false,
             fn: () => {
               dismiss();
               setZoom((z) => Math.max(1, z / 1.3));
             },
           },
           {
+            id: "reset",
             icon: Maximize2,
             label: "Ripristina vista",
+            on: false,
             fn: () => {
               dismiss();
               setZoom(1);
               setPan({ x: 0, y: 0 });
             },
           },
-        ].map(({ icon: I, label, fn }) => (
+        ].map(({ id, icon: I, label, on, fn }) => (
           <button
-            key={label}
+            key={id}
             aria-label={label}
             title={label}
+            aria-pressed={on}
             onClick={fn}
-            className="rounded border border-border bg-secondary p-1.5 text-muted-foreground hover:text-foreground"
+            className={`rounded border p-1.5 ${
+              on
+                ? "border-primary/40 bg-primary/15 text-foreground"
+                : "border-border bg-secondary text-muted-foreground hover:text-foreground"
+            }`}
           >
             <I className="h-3.5 w-3.5" />
           </button>
@@ -372,8 +587,8 @@ export function TrackMap({
         </div>
       )}
       <div className="pointer-events-none absolute bottom-2 left-2 font-mono text-[10px] text-muted-foreground">
-        Tracciato da {outline.pts.length} campioni ({outline.from}) · ● = inizio giro · clic su una
-        traiettoria per i valori
+        Tracciato da {outline.count} campioni ({outline.from}) · ● = inizio giro · lacune &gt; 1,5 s
+        spezzate, nessun collegamento inventato · clic su una traiettoria per i valori
       </div>
     </div>
   );

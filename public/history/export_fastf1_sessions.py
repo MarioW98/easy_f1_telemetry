@@ -13,16 +13,6 @@ Usage:
   python export_fastf1_sessions.py --year 2021 --rounds 1-12 --sessions race
 
 Requires: python -m pip install 'fastf1>=3.4,<4'
-
-NOTE ACCESSO (aggiornato a novembre 2026):
-  - Dal 15/10/2026 l'archivio livetiming.formula1.com richiede l'autenticazione
-    F1 TV: serve fastf1>=3.9 e un abbonamento F1 TV (Access o superiore).
-    Login una tantum: python -m fastf1 auth f1tv --authenticate (token ~4 giorni,
-    credenziali lette da F1_USERNAME/F1_PASSWORD o richieste in modo interattivo).
-  - 2018-2020: solo con autenticazione F1 TV (il mirror pubblico non li copre);
-    usare export_2018_2019_2020.py che esegue i tre anni in locale.
-  - 2021-2022: scaricabili senza autenticazione dal mirror pubblico fastf1.dev.
-  - 2023+: usare export_openf1_sessions.py (OpenF1, nessuna autenticazione).
 """
 import argparse
 import json

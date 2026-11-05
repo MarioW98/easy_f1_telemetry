@@ -39,6 +39,10 @@ interface Inspect {
 const MIN_OUTLINE_POINTS = 60;
 const MAX_ZOOM = 14;
 const PAD_FRAC = 0.04;
+/** OpenF1 /location x,y are decimetres (verified on real sessions: ≈10 units per metre). */
+const UNITS_PER_M = 10;
+/** drawn asphalt width in metres — real F1 tracks are 12–15 m wide */
+const TRACK_W_M = 13;
 
 /** Spezza i campioni di posizione in segmenti continui: un buco temporale maggiore di
  *  MAX_POS_GAP inizia un nuovo segmento; i campioni isolati vengono scartati
@@ -155,7 +159,7 @@ export function TrackMap({
     const pad = Math.max(w, h) * PAD_FRAC;
     // y is flipped (OpenF1 y grows upward); uniform scale keeps proportions
     const vb = { x: minX - pad, y: -maxY - pad, w: w + pad * 2, h: h + pad * 2 };
-    return { vb, d: trailPath(splitAtGaps(outline.pts), Infinity), unit: Math.max(w, h) / 100 };
+    return { vb, d: trailPath(splitAtGaps(outline.pts), Infinity) };
   }, [series, outline]);
 
   const [zoom, setZoom] = useState(1);
@@ -271,12 +275,14 @@ export function TrackMap({
   }
 
   const v = viewOf(zoom, center)!;
-  const u = geo.unit / Math.sqrt(zoom);
+  // Real-scale rendering: metres → world units, damped by √zoom so that strokes and
+  // markers stay readable at every zoom level while keeping their proportions.
+  const mw = (m: number) => (m * UNITS_PER_M) / Math.sqrt(zoom);
   const dashU = (dash: string | undefined) =>
     dash
       ? dash
           .split(/[\s,]+/)
-          .map((x) => (Number(x) * u * 1.2).toFixed(0))
+          .map((x) => (Number(x) * mw(1.1)).toFixed(1))
           .join(" ")
       : undefined;
 
@@ -289,6 +295,10 @@ export function TrackMap({
     if (!a || !b) return null;
     return { sx: Math.abs(b.x - a.x) / r.width, sy: Math.abs(b.y - a.y) / r.height };
   };
+
+  // UI costanti sullo schermo (etichette, punto auto): unità mondo per pixel CSS.
+  // Ripartono dal fallback metrico al primo render (ancora nessun layout SVG).
+  const pxW = screenScale()?.sx ?? mw(1);
 
   const toggleFull = () => {
     ptrs.current.clear();
@@ -315,7 +325,7 @@ export function TrackMap({
       }
     }
     if (!best) return;
-    const tol = (geo.unit * 6) ** 2;
+    const tol = mw(14) ** 2; // ≈ track width: the clicked point must lie on this trajectory
     if (bestDist > tol) return; // click too far from this trajectory
     const tel = telemetryAt(entry.d.lap.tel, best.t);
     setInspect({
@@ -398,12 +408,13 @@ export function TrackMap({
         onPointerUp={endPtr}
         onPointerCancel={endPtr}
       >
-        {/* circuit ribbon: dark rim + asphalt, constant width (rendering choice, no data invention) */}
+        {/* circuit corridor at real scale: dark rim + ~13 m asphalt, drawn from the
+            reference lap samples (only geometry source — no invented track shape) */}
         <path
           d={geo.d}
           fill="none"
           stroke="var(--color-grid)"
-          strokeWidth={u * 3}
+          strokeWidth={mw(TRACK_W_M * 1.14)}
           strokeLinejoin="round"
           strokeLinecap="round"
         />
@@ -411,14 +422,15 @@ export function TrackMap({
           d={geo.d}
           fill="none"
           stroke="var(--color-track)"
-          strokeWidth={u * 2.2}
+          strokeWidth={mw(TRACK_W_M)}
           strokeLinejoin="round"
           strokeLinecap="round"
         />
-        {/* trajectories: reference lap thicker; progressive mode draws up to the replay time */}
+        {/* trajectories: thin real-scale lines (≈3–4 m) inside the corridor; the
+            progressive mode draws up to the replay time */}
         {showTrails &&
           paths.map(({ d, segs, pts, full: fullD }, i) => {
-            const w = u * (d.reference ? 1.25 : 0.85);
+            const w = mw(d.reference ? 4.2 : 3.2);
             const solidD = progressive ? trailPath(segs, Math.min(time, d.lap.duration)) : fullD;
             return (
               <g key={d.label + i}>
@@ -432,11 +444,7 @@ export function TrackMap({
                     strokeLinejoin="round"
                     strokeLinecap="round"
                     opacity={0.22}
-                    className="cursor-pointer"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      pickOnPath(paths[i]!, e.clientX, e.clientY);
-                    }}
+                    className="pointer-events-none"
                   />
                 )}
                 {solidD && (
@@ -445,7 +453,7 @@ export function TrackMap({
                       d={solidD}
                       fill="none"
                       stroke="var(--color-background)"
-                      strokeWidth={w + u * 0.45}
+                      strokeWidth={w + mw(1.0)}
                       strokeLinejoin="round"
                       strokeLinecap="round"
                       opacity={0.85}
@@ -459,15 +467,25 @@ export function TrackMap({
                       strokeDasharray={dashU(d.dash)}
                       strokeLinejoin="round"
                       strokeLinecap="round"
-                      opacity={d.reference ? 1 : 0.9}
-                      className="cursor-pointer"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        pickOnPath(paths[i]!, e.clientX, e.clientY);
-                      }}
+                      opacity={d.reference ? 1 : 0.92}
+                      className="pointer-events-none"
                     />
                   </>
                 )}
+                {/* invisible wide hit area: a 3 px line is not tappable, the corridor is */}
+                <path
+                  d={solidD || fullD}
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth={mw(14)}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  className="cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    pickOnPath(paths[i]!, e.clientX, e.clientY);
+                  }}
+                />
               </g>
             );
           })}
@@ -480,10 +498,10 @@ export function TrackMap({
                   key={i}
                   cx={p.x}
                   cy={-p.y}
-                  r={u * 0.34}
+                  r={mw(2.2)}
                   fill={d.color}
                   stroke="var(--color-background)"
-                  strokeWidth={u * 0.12}
+                  strokeWidth={mw(0.5)}
                 />
               ))}
             </g>
@@ -492,35 +510,36 @@ export function TrackMap({
         <circle
           cx={outline.pts[0]!.x}
           cy={-outline.pts[0]!.y}
-          r={u * 0.9}
+          r={mw(5)}
           fill="var(--color-track)"
           stroke="var(--color-grid)"
-          strokeWidth={u * 0.2}
+          strokeWidth={mw(0.8)}
         />
         {drivers.map((d, i) => {
           const p = positionAt(d.lap.pos, Math.min(time, d.lap.duration));
           if (!p) return null;
+          const r = Math.max(mw(3.5), 4 * pxW); // punto auto: ≥3,5 m ma mai sotto ~4 px
           return (
             <g key={d.number + "-" + i} className="pointer-events-none">
-              <circle cx={p.x} cy={-p.y} r={u * 3.2} fill={d.color} opacity={0.18} />
+              <circle cx={p.x} cy={-p.y} r={r * 2} fill={d.color} opacity={0.18} />
               <circle
                 cx={p.x}
                 cy={-p.y}
-                r={u * 1.6}
+                r={r}
                 fill={d.color}
                 stroke="var(--color-background)"
-                strokeWidth={u * 0.4}
+                strokeWidth={Math.max(1.5 * pxW, mw(0.6))}
               />
               <text
-                x={p.x + u * 2.4}
-                y={-p.y - u * 2.0 + i * u * 4.5}
+                x={p.x + r + 3 * pxW}
+                y={-p.y - r - 3 * pxW + i * 18 * pxW}
                 fill={d.color}
-                fontSize={u * 3.4}
+                fontSize={12 * pxW}
                 fontFamily="var(--font-mono)"
                 fontWeight={700}
                 paintOrder="stroke"
                 stroke="var(--color-background)"
-                strokeWidth={u * 0.8}
+                strokeWidth={3 * pxW}
               >
                 {d.number} {d.label}
               </text>

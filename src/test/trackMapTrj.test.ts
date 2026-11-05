@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { splitAtGaps, trailPath } from "@/components/f1/TrackMap";
+import { splitAtGaps, trailPath } from "@/lib/trackGeometry";
 import { MAX_POS_GAP } from "@/lib/telemetry";
 import type { PosSample } from "@/lib/telemetry";
 

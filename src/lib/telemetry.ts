@@ -26,6 +26,14 @@ export interface LapData {
   pos: PosSample[];
   dist: number[]; // cumulative distance (m) aligned with tel, integrated from speed
   coverage: { tel: number; pos: number; maxTelGap: number; maxPosGap: number };
+  /**
+   * Identity of the coordinate reference frame of `pos` (raw /location X,Y):
+   * "openf1:<session_key>" for the live API, "local:<year>:<event>:<circuit>:<session>:<date>"
+   * for exported archives. Frames of different sessions/years are NOT guaranteed
+   * to be aligned — the map only overlays laps sharing this key. Undefined =
+   * legacy/unknown (the map then treats all shown laps as one frame, as before).
+   */
+  coordsSpace?: string;
 }
 
 export const MARGIN_S = 1.5; // extra fetched around lap boundaries for edge interpolation

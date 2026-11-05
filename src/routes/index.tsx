@@ -530,7 +530,7 @@ function Dashboard() {
               <Button
                 variant="ghost"
                 aria-pressed={showTrails}
-                title="Attiva o disattiva le traiettorie: con le traiettorie attive il circuito viene mostrato più grande per capire se la linea è interna o esterna in curva"
+                title="Mostra o nasconde le traiettorie reali (X,Y originali di /location) di tutti i piloti selezionati"
                 onClick={() => setShowTrails((v) => !v)}
                 className={`inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[11px] ${showTrails ? "text-foreground" : "text-muted-foreground"}`}
               >

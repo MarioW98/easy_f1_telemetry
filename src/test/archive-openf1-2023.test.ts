@@ -6,7 +6,10 @@ import { parseArchive } from "@/lib/history";
 // Validazione end-to-end: un file archivio OpenF1 reale deve passare lo stesso
 // schema zod usato per i file FastF1 scaricati dal repository.
 describe("archivio OpenF1 2023 (Bahrain Race)", () => {
-  const path = resolve(__dirname, "../../public/data/archives/2023/01-bahrain-grand-prix-race.json");
+  const path = resolve(
+    __dirname,
+    "../../public/data/archives/2023/01-bahrain-grand-prix-race.json",
+  );
   const data = JSON.parse(readFileSync(path, "utf-8"));
   const parsed = parseArchive(data);
 

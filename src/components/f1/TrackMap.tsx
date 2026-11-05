@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Maximize2, ZoomIn, ZoomOut, X } from "lucide-react";
 import type { LapData } from "@/lib/telemetry";
 import { positionAt, telemetryAt } from "@/lib/telemetry";
@@ -99,6 +99,14 @@ export function TrackMap({
   const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
+  // A zoom minimo il circuito è interamente visibile: nessun pan possibile, quindi
+  // il tocco deve scorrere la pagina (niente touch-action none né drag). Il pan
+  // residuo viene azzerato così che uno zoom successivo riparta dal centro.
+  const pannable = zoom > 1;
+  useEffect(() => {
+    if (!pannable) setPan((p) => (p.x === 0 && p.y === 0 ? p : { x: 0, y: 0 }));
+  }, [pannable]);
+
   if (!geo || !outline) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground">
@@ -113,8 +121,8 @@ export function TrackMap({
 
   const vw = geo.vb.w / zoom,
     vh = geo.vb.h / zoom;
-  const vx = geo.vb.x + (geo.vb.w - vw) / 2 + pan.x;
-  const vy = geo.vb.y + (geo.vb.h - vh) / 2 + pan.y;
+  const vx = geo.vb.x + (geo.vb.w - vw) / 2 + (pannable ? pan.x : 0);
+  const vy = geo.vb.y + (geo.vb.h - vh) / 2 + (pannable ? pan.y : 0);
   const u = geo.unit / Math.sqrt(zoom);
 
   const userPoint = (clientX: number, clientY: number): { x: number; y: number } | null => {
@@ -170,14 +178,20 @@ export function TrackMap({
         ref={svgRef}
         viewBox={`${vx} ${vy} ${vw} ${vh}`}
         preserveAspectRatio="xMidYMid meet"
-        className="h-full w-full cursor-grab touch-none active:cursor-grabbing"
+        className={`h-full w-full ${pannable ? "cursor-grab touch-none active:cursor-grabbing" : ""}`}
         onPointerDown={(e) => {
+          // a zoom minimo non si cattura il tocco: la pagina deve scorrere liberamente
+          if (!pannable) {
+            dismiss();
+            return;
+          }
           (e.target as Element).setPointerCapture?.(e.pointerId);
           drag.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
           if (!(e.target as Element).classList?.contains("cursor-pointer")) dismiss();
         }}
+        onPointerCancel={() => (drag.current = null)}
         onPointerMove={(e) => {
-          if (!drag.current || !svgRef.current) return;
+          if (!pannable || !drag.current || !svgRef.current) return;
           const r = svgRef.current.getBoundingClientRect();
           const s = Math.max(vw / r.width, vh / r.height);
           setPan({

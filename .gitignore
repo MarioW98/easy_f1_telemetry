@@ -26,4 +26,8 @@ dist
 *.njsproj
 *.sln
 *.sw?
-zippi/
+
+zippi
+.zippi/
+.zippi
+.zippi/*

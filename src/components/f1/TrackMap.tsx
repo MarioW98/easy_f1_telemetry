@@ -1,17 +1,17 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CircleDot,
-  Eye,
-  EyeOff,
-  Maximize2,
-  Spline,
+  LocateFixed,
+  Maximize,
+  Minimize,
+  Route,
   X,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
 import type { LapData, PosSample } from "@/lib/telemetry";
-import { MAX_POS_GAP, positionAt, telemetryAt } from "@/lib/telemetry";
+import { positionAt, telemetryAt } from "@/lib/telemetry";
 
 export interface MapDriver {
   lap: LapData;
@@ -37,94 +37,15 @@ interface Inspect {
 }
 
 const MIN_OUTLINE_POINTS = 60;
+const MAX_ZOOM = 14;
+const PAD_FRAC = 0.04;
+/** position samples farther apart than this are NOT connected (no invented links) */
+const POS_BREAK_S = 1.2;
 
-/**
- * Splits chronological samples where two consecutive ones are more than
- * MAX_POS_GAP apart. Across such temporal holes nothing is ever drawn:
- * segments stay disconnected (no artificial links), matching positionAt.
- */
-export function splitAtGaps(pts: PosSample[]): PosSample[][] {
-  const segs: PosSample[][] = [];
-  let cur: PosSample[] = [pts[0]!];
-  for (let i = 1; i < pts.length; i++) {
-    const p = pts[i]!;
-    if (p.t - cur[cur.length - 1]!.t > MAX_POS_GAP) {
-      if (cur.length > 1) segs.push(cur);
-      cur = [p];
-    } else {
-      cur.push(p);
-    }
-  }
-  if (cur.length > 1) segs.push(cur);
-  return segs;
-}
-
-/** One SVG "d" per driver: disconnected subpaths joined by M commands. */
-const joinSegs = (segs: PosSample[][]): string =>
-  segs
-    .map((seg) =>
-      seg.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(0)},${(-p.y).toFixed(0)}`).join(" "),
-    )
-    .join(" ");
-
-/**
- * Trajectory grown up to replay time `time`: recorded samples with t <= time
- * plus (at most) the interpolated tip inside the current segment — never
- * across a gap. Samples only, no geometry from telemetry.
- */
-export function trailPath(segs: PosSample[][], time: number): string {
-  let out = "";
-  for (const seg of segs) {
-    if (seg[0]!.t > time) break; // segments are chronological
-    let last = 0;
-    while (last + 1 < seg.length && seg[last + 1]!.t <= time) last++;
-    out += joinSegs([seg.slice(0, last + 1)]);
-    const a = seg[last]!;
-    const b = seg[last + 1];
-    if (b && b.t > time && time > a.t) {
-      const f = (time - a.t) / (b.t - a.t);
-      out += ` L${(a.x + (b.x - a.x) * f).toFixed(0)},${(-(a.y + (b.y - a.y) * f)).toFixed(0)}`;
-    }
-    out += " ";
-  }
-  return out.trim();
-}
-
-/** Original location samples as tiny dots (opt-in). Memoised so the replay
-    tick does not re-render thousands of circles: it refreshes only when the
-    drivers, their visibility or the zoom change. */
-const PointsLayer = memo(function PointsLayer({
-  entries,
-  u,
-}: {
-  entries: { key: string; color: string; pts: PosSample[] }[];
-  u: number;
-}) {
-  if (!entries.length) return null;
-  return (
-    <g className="pointer-events-none" shapeRendering="optimizeSpeed">
-      {entries.map((e) =>
-        e.pts.map((p, i) => (
-          <circle
-            key={`${e.key}-${i}`}
-            cx={p.x}
-            cy={-p.y}
-            r={u * 0.32}
-            fill={e.color}
-            fillOpacity={0.85}
-          />
-        )),
-      )}
-    </g>
-  );
-});
-
-interface TrajEntry {
-  d: MapDriver;
-  pts: PosSample[];
-  segments: PosSample[][];
-  full: string;
-}
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+/** center clamp: window must stay over the track (no pan at fit zoom, bounded pan when zoomed) */
+const clampC = (c: number, size: number, lo: number, hi: number) =>
+  size >= hi - lo ? (lo + hi) / 2 : clamp(c, lo + size / 2, hi - size / 2);
 
 export function TrackMap({
   drivers,
@@ -135,132 +56,99 @@ export function TrackMap({
   time: number;
   onPickTime?: (t: number) => void;
 }) {
-  // Outline: the first driver with enough in-lap samples, kept in time order,
-  // split at temporal gaps like every other trajectory.
+  // Per-driver in-lap samples, kept in time order (the only geometry source: /location X,Y).
+  const series = useMemo(
+    () =>
+      drivers.map((d) => ({
+        d,
+        pts: d.lap.pos.filter((p) => p.t >= 0 && p.t <= d.lap.duration),
+      })),
+    [drivers],
+  );
+
+  // Reference outline: the first visible driver with enough samples to describe the circuit.
   const outline = useMemo(() => {
-    for (const d of drivers) {
-      const pts = d.lap.pos.filter((p) => p.t >= 0 && p.t <= d.lap.duration);
-      if (pts.length >= MIN_OUTLINE_POINTS && d.lap.coverage.maxPosGap < 5)
-        return {
-          segs: splitAtGaps(pts),
-          count: pts.length,
-          first: pts[0]!,
-          from: d.label,
-        };
+    for (const s of series) {
+      if (s.pts.length >= MIN_OUTLINE_POINTS && s.d.lap.coverage.maxPosGap < 5) return s;
     }
     return null;
-  }, [drivers]);
+  }, [series]);
 
+  /** Continuous polyline in sample order; a break (>POS_BREAK_S) starts a new subpath "M". */
+  const buildPath = (pts: PosSample[], upTo = Infinity) => {
+    let d = "";
+    let prev: PosSample | null = null;
+    for (const p of pts) {
+      if (p.t > upTo) break;
+      d += !prev || p.t - prev.t > POS_BREAK_S ? "M" : "L";
+      d += `${p.x.toFixed(0)},${(-p.y).toFixed(0)}`;
+      prev = p;
+    }
+    return d;
+  };
+
+  const paths = useMemo(
+    () => series.filter((s) => s.pts.length >= 2).map((s) => ({ ...s, full: buildPath(s.pts) })),
+    // buildPath is a pure local helper; series is the only input
+
+    [series],
+  );
+
+  // View box: union bounding box of ALL visible trajectories (nothing gets clipped),
+  // not just the reference lap — different years/lines may exceed it.
   const geo = useMemo(() => {
     if (!outline) return null;
     let minX = Infinity,
       maxX = -Infinity,
       minY = Infinity,
       maxY = -Infinity;
-    for (const seg of outline.segs) {
-      for (const p of seg) {
+    const scan = (pts: PosSample[]) => {
+      for (const p of pts) {
         minX = Math.min(minX, p.x);
         maxX = Math.max(maxX, p.x);
         minY = Math.min(minY, p.y);
         maxY = Math.max(maxY, p.y);
       }
-    }
+    };
+    for (const s of series) scan(s.pts);
+    if (minX === Infinity) return null;
     const w = maxX - minX,
       h = maxY - minY;
-    const pad = Math.max(w, h) * 0.06;
+    const pad = Math.max(w, h) * PAD_FRAC;
     // y is flipped (OpenF1 y grows upward); uniform scale keeps proportions
     const vb = { x: minX - pad, y: -maxY - pad, w: w + pad * 2, h: h + pad * 2 };
-    return { vb, d: joinSegs(outline.segs), unit: Math.max(w, h) / 100 };
-  }, [outline]);
-
-  // Per-driver trajectories: chronological XY samples only, split at gaps,
-  // each in its driver colour, all on the same coordinate system.
-  const paths = useMemo(
-    () =>
-      drivers
-        .map((d) => {
-          const pts = d.lap.pos.filter((p) => p.t >= 0 && p.t <= d.lap.duration);
-          if (pts.length < 2) return null;
-          const segments = splitAtGaps(pts);
-          if (!segments.length) return null;
-          return { d, pts, segments, full: joinSegs(segments) };
-        })
-        .filter(Boolean) as TrajEntry[],
-    [drivers],
-  );
-
-  // Trajectory visibility (map only — the telemetry charts are untouched).
-  const [showTrajs, setShowTrajs] = useState(true);
-  const [showPoints, setShowPoints] = useState(false);
-  const [hiddenTraj, setHiddenTraj] = useState<Set<string>>(new Set());
-  const toggleTraj = (label: string) =>
-    setHiddenTraj((s) => {
-      const n = new Set(s);
-      if (n.has(label)) n.delete(label);
-      else n.add(label);
-      return n;
-    });
-
-  const visiblePaths = useMemo(
-    () => paths.filter((e) => !hiddenTraj.has(e.d.label)),
-    [paths, hiddenTraj],
-  );
-  const visibleDrivers = useMemo(
-    () => drivers.filter((d) => !hiddenTraj.has(d.label)),
-    [drivers, hiddenTraj],
-  );
-  const pointEntries = useMemo(
-    () =>
-      showPoints ? visiblePaths.map((e) => ({ key: e.d.label, color: e.d.color, pts: e.pts })) : [],
-    [showPoints, visiblePaths],
-  );
-
-  // Growing portion of each trajectory at the current replay time.
-  const trails = useMemo(
-    () =>
-      showTrajs
-        ? visiblePaths.map((e) => ({
-            key: e.d.label,
-            color: e.d.color,
-            reference: e.d.reference === true,
-            done: time >= e.d.lap.duration,
-            d: time < e.d.lap.duration ? trailPath(e.segments, time) : null,
-          }))
-        : [],
-    [showTrajs, visiblePaths, time],
-  );
+    return { vb, d: buildPath(outline.pts), unit: Math.max(w, h) / 100 };
+  }, [series, outline]);
 
   const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [center, setCenter] = useState<{ x: number; y: number } | null>(null);
+  const [progressive, setProgressive] = useState(false);
+  const [showPts, setShowPts] = useState(false);
+  const [full, setFull] = useState(false);
   const [inspect, setInspect] = useState<Inspect | null>(null);
-  const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
+  const drag = useRef<{
+    x: number;
+    y: number;
+    cx: number;
+    cy: number;
+    sx: number;
+    sy: number;
+  } | null>(null);
+  const ptrs = useRef(new Map<number, { x: number; y: number }>());
+  const gest = useRef<{ d0: number; z0: number } | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
 
-  // A zoom minimo il circuito è interamente visibile: nessun pan possibile, quindi
-  // il tocco deve scorrere la pagina (niente touch-action none né drag). Il pan
-  // residuo viene azzerato così che uno zoom successivo riparta dal centro.
-  const pannable = zoom > 1;
-  useEffect(() => {
-    if (!pannable) setPan((p) => (p.x === 0 && p.y === 0 ? p : { x: 0, y: 0 }));
-  }, [pannable]);
-
-  if (!geo || !outline) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground">
-        <AlertTriangle className="h-6 w-6 text-warning" />
-        <p className="max-w-sm">
-          Circuito non ricostruibile: i campioni di posizione di questo giro sono insufficienti o
-          hanno lacune troppo ampie. Nessuna geometria viene inventata.
-        </p>
-      </div>
-    );
-  }
-
-  const vw = geo.vb.w / zoom,
-    vh = geo.vb.h / zoom;
-  const vx = geo.vb.x + (geo.vb.w - vw) / 2 + (pannable ? pan.x : 0);
-  const vy = geo.vb.y + (geo.vb.h - vh) / 2 + (pannable ? pan.y : 0);
-  const u = geo.unit / Math.sqrt(zoom);
+  // current clamped viewport window (viewBox coords, y already flipped)
+  const viewOf = (z: number, c: { x: number; y: number } | null) => {
+    if (!geo) return null;
+    const vw = geo.vb.w / z,
+      vh = geo.vb.h / z;
+    const cx = c?.x ?? geo.vb.x + geo.vb.w / 2;
+    const cy = c?.y ?? geo.vb.y + geo.vb.h / 2;
+    const ccx = clampC(cx, vw, geo.vb.x, geo.vb.x + geo.vb.w);
+    const ccy = clampC(cy, vh, geo.vb.y, geo.vb.y + geo.vb.h);
+    return { vw, vh, vx: ccx - vw / 2, vy: ccy - vh / 2, ccx, ccy };
+  };
 
   const userPoint = (clientX: number, clientY: number): { x: number; y: number } | null => {
     const svg = svgRef.current;
@@ -274,7 +162,109 @@ export function TrackMap({
     return { x: p.x, y: p.y };
   };
 
-  const pickOnPath = (entry: TrajEntry, clientX: number, clientY: number) => {
+  /** zoom anchored on the client point: the world point under it stays under it */
+  const zoomToAt = (clientX: number, clientY: number, z2: number) => {
+    if (!geo) return;
+    const p = userPoint(clientX, clientY);
+    if (!p) return;
+    const v0 = viewOf(zoom, center);
+    if (!v0) return;
+    const fx = (p.x - v0.vx) / v0.vw,
+      fy = (p.y - v0.vy) / v0.vh;
+    const vw2 = geo.vb.w / z2,
+      vh2 = geo.vb.h / z2;
+    setZoom(z2);
+    setCenter({ x: p.x - (fx - 0.5) * vw2, y: p.y - (fy - 0.5) * vh2 });
+  };
+
+  const zoomBy = (f: number) => {
+    const svg = svgRef.current;
+    if (!svg) {
+      setZoom((z) => clamp(z * f, 1, MAX_ZOOM));
+      return;
+    }
+    const r = svg.getBoundingClientRect();
+    zoomToAt(r.left + r.width / 2, r.top + r.height / 2, clamp(zoom * f, 1, MAX_ZOOM));
+  };
+
+  const resetView = () => {
+    setZoom(1);
+    setCenter(null);
+  };
+
+  // wheel zoom (non-passive): cursor-anchored, page does not scroll while zooming
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const h = (e: WheelEvent) => {
+      e.preventDefault();
+      zoomToAt(e.clientX, e.clientY, clamp(zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), 1, MAX_ZOOM));
+    };
+    svg.addEventListener("wheel", h, { passive: false });
+    return () => svg.removeEventListener("wheel", h);
+  });
+
+  // fullscreen: lock page scroll + close with ESC
+  useEffect(() => {
+    if (!full) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFull(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [full]);
+
+  if (!geo || !outline) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground">
+        <AlertTriangle className="h-6 w-6 text-warning" />
+        <p className="max-w-sm">
+          {drivers.length === 0
+            ? "Nessun pilota visibile: riattiva almeno una traiettoria dalla legenda."
+            : "Circuito non ricostruibile: i campioni di posizione di questo giro sono insufficienti o hanno lacune troppo ampie. Nessuna geometria viene inventata."}
+        </p>
+      </div>
+    );
+  }
+
+  const v = viewOf(zoom, center)!;
+  const u = geo.unit / Math.sqrt(zoom);
+  const dashU = (dash: string | undefined) =>
+    dash
+      ? dash
+          .split(/[\s,]+/)
+          .map((x) => (Number(x) * u * 1.2).toFixed(0))
+          .join(" ")
+      : undefined;
+
+  const screenScale = () => {
+    const svg = svgRef.current;
+    const r = svg?.getBoundingClientRect?.();
+    if (!svg || !r || r.width === 0) return null;
+    const a = userPoint(r.left, r.top);
+    const b = userPoint(r.right, r.bottom);
+    if (!a || !b) return null;
+    return { sx: Math.abs(b.x - a.x) / r.width, sy: Math.abs(b.y - a.y) / r.height };
+  };
+
+  const toggleFull = () => {
+    ptrs.current.clear();
+    gest.current = null;
+    drag.current = null;
+    setInspect(null);
+    setFull((f) => !f);
+  };
+
+  const pickOnPath = (
+    entry: { d: MapDriver; pts: PosSample[] },
+    clientX: number,
+    clientY: number,
+  ) => {
     const p = userPoint(clientX, clientY);
     if (!p) return;
     let best: PosSample | null = null;
@@ -305,44 +295,77 @@ export function TrackMap({
 
   const dismiss = () => setInspect(null);
 
-  return (
-    <div className="relative h-full w-full">
+  const endPtr = (e: React.PointerEvent) => {
+    ptrs.current.delete(e.pointerId);
+    if (ptrs.current.size < 2) gest.current = null;
+    if (ptrs.current.size === 0) drag.current = null;
+  };
+
+  const pill = (active: boolean) =>
+    `inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[10px] backdrop-blur ${
+      active
+        ? "border-primary/60 bg-primary/15 text-foreground"
+        : "border-border bg-secondary/90 text-muted-foreground hover:text-foreground"
+    }`;
+
+  const body = (isFull: boolean) => (
+    <>
       <svg
         ref={svgRef}
-        viewBox={`${vx} ${vy} ${vw} ${vh}`}
+        viewBox={`${v.vx} ${v.vy} ${v.vw} ${v.vh}`}
         preserveAspectRatio="xMidYMid meet"
-        className={`h-full w-full ${pannable ? "cursor-grab touch-none active:cursor-grabbing" : ""}`}
+        className="h-full w-full cursor-grab active:cursor-grabbing"
+        style={{ touchAction: zoom > 1 || isFull ? "none" : "pan-y" }}
         onPointerDown={(e) => {
-          // a zoom minimo non si cattura il tocco: la pagina deve scorrere liberamente
-          if (!pannable) {
-            dismiss();
+          svgRef.current?.setPointerCapture?.(e.pointerId);
+          ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          if (ptrs.current.size === 2) {
+            // pinch begins: two fingers on the map
+            drag.current = null;
+            const two = [...ptrs.current.values()];
+            gest.current = {
+              d0: Math.hypot(two[0]!.x - two[1]!.x, two[0]!.y - two[1]!.y),
+              z0: zoom,
+            };
+          } else if (ptrs.current.size === 1) {
+            const s = screenScale();
+            drag.current = s
+              ? { x: e.clientX, y: e.clientY, cx: v.ccx, cy: v.ccy, sx: s.sx, sy: s.sy }
+              : null;
+            if (!(e.target as Element).classList?.contains("cursor-pointer")) dismiss();
+          }
+        }}
+        onPointerMove={(e) => {
+          const pt = ptrs.current.get(e.pointerId);
+          if (pt) {
+            pt.x = e.clientX;
+            pt.y = e.clientY;
+          }
+          if (gest.current && ptrs.current.size >= 2) {
+            const two = [...ptrs.current.values()];
+            const a = two[0]!;
+            const b = two[1]!;
+            const dist = Math.hypot(a.x - b.x, a.y - b.y);
+            const g = gest.current;
+            if (g.d0 > 0 && dist > 0)
+              zoomToAt((a.x + b.x) / 2, (a.y + b.y) / 2, clamp((g.z0 * dist) / g.d0, 1, MAX_ZOOM));
             return;
           }
-          (e.target as Element).setPointerCapture?.(e.pointerId);
-          drag.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
-          if (!(e.target as Element).classList?.contains("cursor-pointer")) dismiss();
-        }}
-        onPointerCancel={() => (drag.current = null)}
-        onPointerMove={(e) => {
-          if (!pannable || !drag.current || !svgRef.current) return;
-          const r = svgRef.current.getBoundingClientRect();
-          const s = Math.max(vw / r.width, vh / r.height);
-          setPan({
-            x: drag.current.px - (e.clientX - drag.current.x) * s,
-            y: drag.current.py - (e.clientY - drag.current.y) * s,
+          if (!drag.current) return;
+          setCenter({
+            x: drag.current.cx - (e.clientX - drag.current.x) * drag.current.sx,
+            y: drag.current.cy - (e.clientY - drag.current.y) * drag.current.sy,
           });
         }}
-        onPointerUp={() => (drag.current = null)}
-        onWheel={(e) => {
-          dismiss();
-          setZoom((z) => Math.min(8, Math.max(1, z * (e.deltaY < 0 ? 1.15 : 1 / 1.15))));
-        }}
+        onPointerUp={endPtr}
+        onPointerCancel={endPtr}
       >
+        {/* circuit ribbon: dark rim + asphalt, constant width (rendering choice, no data invention) */}
         <path
           d={geo.d}
           fill="none"
           stroke="var(--color-grid)"
-          strokeWidth={u * 2.6}
+          strokeWidth={u * 3}
           strokeLinejoin="round"
           strokeLinecap="round"
         />
@@ -350,55 +373,92 @@ export function TrackMap({
           d={geo.d}
           fill="none"
           stroke="var(--color-track)"
-          strokeWidth={u * 0.7}
+          strokeWidth={u * 2.2}
           strokeLinejoin="round"
           strokeLinecap="round"
         />
-        {/* complete trajectories: faint while the replay still has to reach their end */}
-        {showTrajs &&
-          visiblePaths.map(({ d, full }, i) => (
-            <path
-              key={d.label + i}
-              d={full}
-              fill="none"
-              stroke={d.color}
-              strokeWidth={u * (d.reference ? 1.1 : 0.65)}
-              strokeDasharray={d.dash}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-              opacity={time < d.lap.duration ? 0.45 : d.reference ? 1 : 0.8}
-              className="cursor-pointer"
-              onClick={(e) => {
-                e.stopPropagation();
-                pickOnPath(visiblePaths[i]!, e.clientX, e.clientY);
-              }}
-            />
+        {/* trajectories: reference lap thicker; progressive mode draws up to the replay time */}
+        {paths.map(({ d, pts, full: fullD }, i) => {
+          const w = u * (d.reference ? 1.25 : 0.85);
+          const solidD = progressive ? buildPath(pts, Math.min(time, d.lap.duration)) : fullD;
+          return (
+            <g key={d.label + i}>
+              {progressive && (
+                <path
+                  d={fullD}
+                  fill="none"
+                  stroke={d.color}
+                  strokeWidth={w * 0.55}
+                  strokeDasharray={dashU(d.dash)}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  opacity={0.22}
+                  className="cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    pickOnPath(paths[i]!, e.clientX, e.clientY);
+                  }}
+                />
+              )}
+              {solidD && (
+                <>
+                  <path
+                    d={solidD}
+                    fill="none"
+                    stroke="var(--color-background)"
+                    strokeWidth={w + u * 0.45}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                    opacity={0.85}
+                    className="pointer-events-none"
+                  />
+                  <path
+                    d={solidD}
+                    fill="none"
+                    stroke={d.color}
+                    strokeWidth={w}
+                    strokeDasharray={dashU(d.dash)}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                    opacity={d.reference ? 1 : 0.9}
+                    className="cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      pickOnPath(paths[i]!, e.clientX, e.clientY);
+                    }}
+                  />
+                </>
+              )}
+            </g>
+          );
+        })}
+        {/* sampled points (optional): raw /location samples on top of the lines, no interpolation */}
+        {showPts &&
+          paths.map(({ d, pts }) => (
+            <g key={"pts-" + d.label} className="pointer-events-none">
+              {pts.map((p, i) => (
+                <circle
+                  key={i}
+                  cx={p.x}
+                  cy={-p.y}
+                  r={u * 0.34}
+                  fill={d.color}
+                  stroke="var(--color-background)"
+                  strokeWidth={u * 0.12}
+                />
+              ))}
+            </g>
           ))}
-        {/* original samples, one tiny dot each (opt-in) */}
-        <PointsLayer entries={pointEntries} u={u} />
-        {/* progressive trajectories: recorded samples only, up to the replay time */}
-        {trails.map((tr, i) =>
-          tr.d ? (
-            <path
-              key={tr.key + "-trail-" + i}
-              d={tr.d}
-              fill="none"
-              stroke={tr.color}
-              strokeWidth={u * (tr.reference ? 1.35 : 0.9)}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-              opacity={0.95}
-            />
-          ) : null,
-        )}
         {/* lap start marker (first in-lap sample, not assumed origin) */}
         <circle
-          cx={outline.first.x}
-          cy={-outline.first.y}
+          cx={outline.pts[0]!.x}
+          cy={-outline.pts[0]!.y}
           r={u * 0.9}
-          fill="var(--color-primary)"
+          fill="var(--color-track)"
+          stroke="var(--color-grid)"
+          strokeWidth={u * 0.2}
         />
-        {visibleDrivers.map((d, i) => {
+        {drivers.map((d, i) => {
           const p = positionAt(d.lap.pos, Math.min(time, d.lap.duration));
           if (!p) return null;
           return (
@@ -429,108 +489,70 @@ export function TrackMap({
           );
         })}
       </svg>
-      {/* per-driver trajectory visibility (map only) */}
-      <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
-        {drivers.map((d) => {
-          const hid = hiddenTraj.has(d.label);
-          return (
-            <button
-              key={d.label}
-              type="button"
-              aria-pressed={!hid}
-              title={
-                hid
-                  ? `Mostra la traiettoria di ${d.label}`
-                  : `Nascondi la traiettoria di ${d.label}`
-              }
-              onClick={() => toggleTraj(d.label)}
-              className={`flex items-center gap-1.5 rounded border px-1.5 py-0.5 font-mono text-[10px] backdrop-blur-sm transition-colors ${
-                hid
-                  ? "border-border bg-card/60 text-muted-foreground"
-                  : "border-border bg-card/85 text-foreground hover:border-primary/40"
-              }`}
-            >
-              <span
-                className="h-0.5 w-4 rounded-full"
-                style={{ background: d.color, opacity: hid ? 0.4 : 1 }}
-              />
-              <span style={{ color: hid ? undefined : d.color }}>
-                {d.number} {d.label}
-              </span>
-              {hid ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-            </button>
-          );
-        })}
-      </div>
+      {/* view controls */}
       <div className="absolute right-2 top-2 flex flex-col gap-1">
         {[
           {
-            id: "trajs",
-            icon: Spline,
-            label: showTrajs ? "Nascondi traiettorie" : "Mostra traiettorie",
-            on: showTrajs,
-            fn: () => {
-              dismiss();
-              setShowTrajs((v) => !v);
-            },
-          },
-          {
-            id: "points",
-            icon: CircleDot,
-            label: showPoints ? "Nascondi punti campione" : "Mostra punti campione",
-            on: showPoints,
-            fn: () => {
-              dismiss();
-              setShowPoints((v) => !v);
-            },
-          },
-          {
-            id: "zin",
             icon: ZoomIn,
             label: "Zoom avanti",
-            on: false,
             fn: () => {
               dismiss();
-              setZoom((z) => Math.min(8, z * 1.3));
+              zoomBy(1.35);
             },
           },
           {
-            id: "zout",
             icon: ZoomOut,
             label: "Zoom indietro",
-            on: false,
             fn: () => {
               dismiss();
-              setZoom((z) => Math.max(1, z / 1.3));
+              zoomBy(1 / 1.35);
             },
           },
           {
-            id: "reset",
-            icon: Maximize2,
-            label: "Ripristina vista",
-            on: false,
+            icon: LocateFixed,
+            label: "Ripristina vista (tutto il circuito)",
             fn: () => {
               dismiss();
-              setZoom(1);
-              setPan({ x: 0, y: 0 });
+              resetView();
             },
           },
-        ].map(({ id, icon: I, label, on, fn }) => (
+          {
+            icon: isFull ? Minimize : Maximize,
+            label: isFull ? "Chiudi schermo intero (ESC)" : "Schermo intero: circuito ingrandito",
+            fn: toggleFull,
+          },
+        ].map(({ icon: I, label, fn }) => (
           <button
-            key={id}
+            key={label}
             aria-label={label}
             title={label}
-            aria-pressed={on}
             onClick={fn}
-            className={`rounded border p-1.5 ${
-              on
-                ? "border-primary/40 bg-primary/15 text-foreground"
-                : "border-border bg-secondary text-muted-foreground hover:text-foreground"
-            }`}
+            className="rounded border border-border bg-secondary/90 p-1.5 text-muted-foreground backdrop-blur hover:text-foreground"
           >
             <I className="h-3.5 w-3.5" />
           </button>
         ))}
+      </div>
+      {/* display options */}
+      <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
+        <button
+          aria-pressed={progressive}
+          title="Disegna le traiettorie fino all'istante della riproduzione"
+          onClick={() => setProgressive((p) => !p)}
+          className={pill(progressive)}
+        >
+          <Route className="h-3 w-3" />
+          <span className="hidden sm:inline">Traiettoria progressiva</span>
+        </button>
+        <button
+          aria-pressed={showPts}
+          title="Mostra i campioni grezzi di /location"
+          onClick={() => setShowPts((p) => !p)}
+          className={pill(showPts)}
+        >
+          <CircleDot className="h-3 w-3" />
+          <span className="hidden sm:inline">Punti campionati</span>
+        </button>
       </div>
       {inspect && (
         <div
@@ -587,9 +609,25 @@ export function TrackMap({
         </div>
       )}
       <div className="pointer-events-none absolute bottom-2 left-2 font-mono text-[10px] text-muted-foreground">
-        Tracciato da {outline.count} campioni ({outline.from}) · ● = inizio giro · lacune &gt; 1,5 s
-        spezzate, nessun collegamento inventato · clic su una traiettoria per i valori
+        <span className="hidden sm:inline">
+          Rotellina/pinch = zoom sulla curva · trascina = sposta ·{" "}
+        </span>
+        clic su una traiettoria = valori · ● inizio giro
       </div>
-    </div>
+    </>
+  );
+
+  return (
+    <>
+      {!full && <div className="relative h-full w-full">{body(false)}</div>}
+      {full && (
+        <div className="fixed inset-0 z-50 bg-background p-1 sm:p-2">
+          <div className="relative h-full w-full">{body(true)}</div>
+          <div className="pointer-events-none absolute left-1/2 top-1 -translate-x-1/2 font-mono text-[10px] text-muted-foreground">
+            schermo intero · ESC per uscire
+          </div>
+        </div>
+      )}
+    </>
   );
 }

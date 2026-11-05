@@ -182,7 +182,7 @@ function Dashboard() {
   const colors = useMemo(
     () => distinctColors((req?.entries ?? []).map((e) => dInfo(e)?.team_colour)),
     [req, drivers],
-  ); // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   // all loaded entries, with identity, regardless of visibility
   const loaded = useMemo(
@@ -214,7 +214,7 @@ function Dashboard() {
         year: number;
       }[],
     [req, LAPS, colors, drivers],
-  ); // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const hiddenSet = useMemo(() => new Set(hidden), [hidden]);
   const shown = useMemo(() => loaded.filter((l) => !hiddenSet.has(l.key)), [loaded, hiddenSet]);
 
@@ -385,8 +385,8 @@ function Dashboard() {
         meetingsQ.isSuccess &&
         meetings.length === 0 && (
           <p className="border-b border-border bg-warning/10 px-3 py-1.5 text-xs text-warning">
-            Nessun evento negli archivi per quest'anno: scegli un altro anno, scarica le sessioni
-            da «Archivi» o prova con «OpenF1 Live».
+            Nessun evento negli archivi per quest'anno: scegli un altro anno, scarica le sessioni da
+            «Archivi» o prova con «OpenF1 Live».
           </p>
         )}
 
@@ -520,7 +520,7 @@ function Dashboard() {
       ) : loaded.length ? (
         <main className="grid flex-1 grid-cols-1 gap-2 p-2 xl:grid-cols-[1fr_300px]">
           <div className="flex min-w-0 flex-col">
-            <div className="f1-panel h-[300px] shrink-0 overflow-hidden touch-pan-y sm:h-[420px] xl:h-[540px]">
+            <div className="f1-panel h-[420px] shrink-0 overflow-hidden touch-pan-y sm:h-[540px] xl:h-[680px]">
               <TrackMap
                 drivers={mapDrivers}
                 time={t}

@@ -24,6 +24,7 @@ import {
   type LapData,
 } from "@/lib/telemetry";
 import { TrackMap } from "@/components/f1/TrackMap";
+import { tyreInfo } from "@/lib/tyres";
 import { SERIES, TelemetryCharts, type SeriesKey } from "@/components/f1/TelemetryCharts";
 import { usePlayback } from "@/hooks/use-playback";
 import { useTelemetryData, useLapQueries } from "@/hooks/useTelemetryData";
@@ -735,6 +736,7 @@ function Readout({
 }) {
   const tt = Math.min(t, lap.duration);
   const cur = telemetryAt(lap.tel, tt)?.s;
+  const tyre = tyreInfo(lap.compound);
   const v = (x: number | null | undefined, u = "") =>
     x === null || x === undefined ? "n/d" : `${x}${u}`;
   const cov = lap.coverage;
@@ -775,6 +777,26 @@ function Readout({
                   : "chiuso"
           }
         />
+        <Row
+          k="Gomme"
+          v={
+            tyre ? (
+              <span className="flex items-center justify-end gap-1">
+                <span
+                  aria-hidden
+                  className="inline-block h-2 w-2 shrink-0 rounded-full border border-border"
+                  style={{ background: tyre.color }}
+                />
+                {tyre.label}
+                {lap.tyreAge !== null && lap.tyreAge !== undefined
+                  ? ` · età ${lap.tyreAge} ${lap.tyreAge === 1 ? "giro" : "giri"}`
+                  : ""}
+              </span>
+            ) : (
+              "n/d"
+            )
+          }
+        />
       </div>
       <div className={`mt-1.5 text-[10px] ${poor ? "text-warning" : "text-muted-foreground"}`}>
         Copertura: telemetria {(cov.tel * 100).toFixed(0)}% · posizione {(cov.pos * 100).toFixed(0)}
@@ -786,7 +808,7 @@ function Readout({
   );
 }
 
-const Row = ({ k, v }: { k: string; v: string }) => (
+const Row = ({ k, v }: { k: string; v: React.ReactNode }) => (
   <div className="flex justify-between gap-2 py-0.5 text-xs">
     <span className="text-muted-foreground">{k}</span>
     <span className="font-mono tabular-nums">{v}</span>

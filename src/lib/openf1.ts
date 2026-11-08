@@ -46,6 +46,18 @@ export interface Lap {
   date_start: string | null;
   lap_duration: number | null;
   is_pit_out_lap: boolean | null;
+  /** Tyre compound used on this lap, when known (OpenF1 stints or archive field). */
+  compound?: string | null;
+  /** Age of the tyre in laps at this lap, when known. */
+  tyreAge?: number | null;
+}
+export interface Stint {
+  driver_number: number;
+  lap_start: number;
+  lap_end: number;
+  stint_number: number | null;
+  compound: string | null;
+  tyre_age_at_start: number | null;
 }
 export interface CarData {
   date: string;
@@ -133,6 +145,7 @@ export const api = {
   sessions: (meeting_key: number) => get<Session[]>("sessions", { meeting_key }),
   drivers: (session_key: number) => get<Driver[]>("drivers", { session_key }),
   laps: (session_key: number) => get<Lap[]>("laps", { session_key }),
+  stints: (session_key: number) => get<Stint[]>("stints", { session_key }),
   carData: (session_key: number, driver_number: number, from: string, to: string) =>
     get<CarData[]>("car_data", { session_key, driver_number }, [`date>=${from}`, `date<=${to}`]),
   location: (session_key: number, driver_number: number, from: string, to: string) =>

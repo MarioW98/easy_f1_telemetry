@@ -53,6 +53,10 @@ const archiveSchema = sessionMetadataSchema.extend({
           )
           .max(20000),
         pos: z.array(z.object({ t: finite, x: finite, y: finite })).max(20000),
+        // Optional tyre info (stints join in the exporters, FastF1 Compound/TyreLife).
+        // Absent in archives generated before this field existed: treated as unknown.
+        compound: z.string().max(24).nullable().optional(),
+        tyreAge: z.number().int().min(0).max(500).nullable().optional(),
       }),
     )
     .min(1)
@@ -245,6 +249,8 @@ export async function archiveLaps(sessionKey: number): Promise<Lap[]> {
         date_start: new Date(l.startMs).toISOString(),
         lap_duration: l.duration,
         is_pit_out_lap: false,
+        compound: l.compound ?? null,
+        tyreAge: l.tyreAge ?? null,
       }))
     : [];
 }
@@ -279,6 +285,8 @@ export async function archiveLapData(
   result.tel.forEach((s) => {
     s.drsOpen = states.get(Math.round(s.t * 1000)) ?? s.drsOpen;
   });
+  result.compound = l.compound ?? null;
+  result.tyreAge = l.tyreAge ?? null;
   return result;
 }
 
@@ -302,6 +310,8 @@ export const dataApi = {
           date_start: new Date(l.startMs).toISOString(),
           lap_duration: l.duration,
           is_pit_out_lap: false,
+          compound: l.compound ?? null,
+          tyreAge: l.tyreAge ?? null,
         }))
       : key < 0
         ? []

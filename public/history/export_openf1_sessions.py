@@ -146,7 +146,26 @@ def export_session(client: OpenF1Client, sess: dict, year: int, event: str, circ
     session_start = parse_iso(sess["date_start"])
     drivers_rows = client.get("/drivers", session_key=sk)
     laps_rows = client.get("/laps", session_key=sk)
+    try:
+        stints_rows = client.get("/stints", session_key=sk)
+    except Exception:
+        logging.warning("Stints non disponibili per %s: esporto senza dati gomme", sess["session_name"])
+        stints_rows = []
     drivers_by_number = {d["driver_number"]: d for d in drivers_rows}
+
+    def tyre_for(driver_number: int, lap_number: int) -> tuple[str | None, int | None]:
+        """Compound and tyre age (in laps) of the stint covering this lap, or (None, None)."""
+        for s in stints_rows:
+            if s.get("driver_number") != driver_number:
+                continue
+            a, b = num(s.get("lap_start")), num(s.get("lap_end"))
+            if a is None or b is None or not (a <= lap_number <= b):
+                continue
+            compound = str(s["compound"]).upper() if s.get("compound") else None
+            age = num(s.get("tyre_age_at_start"))
+            age_laps = int(round(age + (lap_number - a))) if age is not None else None
+            return compound, age_laps
+        return None, None
 
     # Fastest valid lap per driver (compact mode).
     best: dict[int, tuple[float, dict]] = {}
@@ -220,8 +239,10 @@ def export_session(client: OpenF1Client, sess: dict, year: int, event: str, circ
         if not any(0 <= s["t"] <= duration for s in tel):
             logging.warning("Nessuna telemetria nel giro: %s #%s giro %s", sess["session_name"], n, it["lap"]["lap_number"])
             continue
+        compound, tyre_age = tyre_for(n, int(it["lap"]["lap_number"]))
         laps.append(dict(driver=int(n), lapNumber=int(it["lap"]["lap_number"]), startMs=int(start.timestamp() * 1000),
-                         duration=duration, durationOfficial=True, tel=tel, pos=pos))
+                         duration=duration, durationOfficial=True, tel=tel, pos=pos,
+                         compound=compound, tyreAge=tyre_age))
         full_name = f'{drv.get("first_name", "")} {drv.get("last_name", "")}'.strip()
         drivers.append(dict(driver_number=int(n), name_acronym=drv["name_acronym"],
                             full_name=full_name or drv["full_name"],

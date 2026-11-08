@@ -1,10 +1,11 @@
 import type { DataSource } from "./dataSource";
 import { CURRENT_YEAR } from "./years";
-import type { Driver, Lap, Meeting, Session } from "@/lib/openf1";
+import type { Driver, Lap, Meeting, Session, Stint } from "@/lib/openf1";
 import type { LapData } from "@/lib/telemetry";
 import type { Selection } from "@/components/f1/HistoricalPicker";
 import { api } from "@/lib/openf1";
 import { buildLapData, lapWindow } from "@/lib/telemetry";
+import { withTyres } from "@/lib/tyres";
 
 const MARGIN_S = 1.5; // extra fetched around lap boundaries, same as OpenF1 pipeline
 
@@ -29,8 +30,13 @@ export const openF1Source: DataSource = {
     return api.drivers(sessionKey);
   },
 
-  laps(sessionKey: number): Promise<Lap[]> {
-    return api.laps(sessionKey);
+  async laps(sessionKey: number): Promise<Lap[]> {
+    // Tyre data must never break the lap list: if /stints fails, laps load without compound.
+    const [laps, stints] = await Promise.all([
+      api.laps(sessionKey),
+      api.stints(sessionKey).catch(() => [] as Stint[]),
+    ]);
+    return withTyres(laps, stints);
   },
 
   async lapData(entry: Selection): Promise<LapData> {
@@ -43,6 +49,11 @@ export const openF1Source: DataSource = {
       api.carData(entry.session, entry.d, from, to),
       api.location(entry.session, entry.d, from, to),
     ]);
-    return buildLapData(entry.d, entry.lap, win, car, loc);
+    const data = buildLapData(entry.d, entry.lap, win, car, loc);
+    if (lap) {
+      data.compound = lap.compound ?? null;
+      data.tyreAge = lap.tyreAge ?? null;
+    }
+    return data;
   },
 };

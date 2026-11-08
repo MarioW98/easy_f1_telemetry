@@ -65,8 +65,14 @@ def extract_session(session, year, mode):
             if not any(0 <= s["t"] <= duration for s in tel):
                 logging.warning("No in-lap telemetry: driver %s lap %s", number, lap.LapNumber)
                 continue
+            # Optional tyre fields (v1 schema): compound as reported by FastF1
+            # (UNKNOWN/TEST_UNKNOWN stay as-is, the site normalises them), tyre
+            # age in laps from TyreLife. Absent/NaN -> None (unknown).
+            compound = text(lap.get("Compound"))
+            tyre_life = num(lap.get("TyreLife"))
             laps.append(dict(driver=int(number), lapNumber=int(lap.LapNumber), startMs=int(start.timestamp()*1000),
-                duration=duration, durationOfficial=True, tel=tel, pos=pos))
+                duration=duration, durationOfficial=True, tel=tel, pos=pos,
+                compound=compound, tyreAge=None if tyre_life is None else int(round(tyre_life))))
         if len(laps) > before:
             drivers.append(dict(driver_number=int(number), name_acronym=str(result.Abbreviation), full_name=str(result.FullName),
                 team_name=text(result.TeamName), team_colour=text(result.TeamColor)))

@@ -26,6 +26,10 @@ export interface LapData {
   pos: PosSample[];
   dist: number[]; // cumulative distance (m) aligned with tel, integrated from speed
   coverage: { tel: number; pos: number; maxTelGap: number; maxPosGap: number };
+  /** Tyre compound used on this lap, when known (stints join or archive field). */
+  compound?: string | null;
+  /** Age of the tyre in laps at this lap, when known. */
+  tyreAge?: number | null;
 }
 
 export const MARGIN_S = 1.5; // extra fetched around lap boundaries for edge interpolation

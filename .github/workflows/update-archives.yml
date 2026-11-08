@@ -22,6 +22,10 @@ on:
         description: "Round facoltativi, es. 1-12,14 (vuoto = tutti). Utile per spezzare un anno in più esecuzioni."
         type: string
         default: ""
+      force:
+        description: "Riesporta anche le sessioni già presenti (serve per aggiungere il compound gomme ai file esistenti)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -58,7 +62,8 @@ jobs:
             --year "${{ github.event.inputs.year }}" \
             --mode "${{ github.event.inputs.mode }}" \
             --sessions "${{ github.event.inputs.sessions }}" \
-            --rounds "${{ github.event.inputs.rounds }}"
+            --rounds "${{ github.event.inputs.rounds }}" \
+            $( [ "${{ github.event.inputs.force }}" = "true" ] && echo --force )
 
       - name: Guardia dimensione (nessun file oltre 95 MB, limite Git 100 MB)
         run: |

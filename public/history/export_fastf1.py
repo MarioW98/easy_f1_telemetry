@@ -62,8 +62,12 @@ def main():
             continue
         drivers.append(dict(driver_number=int(number), name_acronym=str(result.Abbreviation), full_name=str(result.FullName),
             team_name=text(result.TeamName), team_colour=text(result.TeamColor)))
+        # Optional tyre fields (v1 schema), same semantics as export_fastf1_archive.py.
+        compound = text(lap.get("Compound"))
+        tyre_life = num(lap.get("TyreLife"))
         laps.append(dict(driver=int(number), lapNumber=int(lap.LapNumber), startMs=int(start.timestamp()*1000),
-            duration=duration, durationOfficial=True, tel=tel, pos=pos))
+            duration=duration, durationOfficial=True, tel=tel, pos=pos,
+            compound=compound, tyreAge=None if tyre_life is None else int(round(tyre_life))))
     if not laps:
         raise SystemExit("No measured telemetry available for this session.")
     payload = dict(format="f1-telemetry-lab/v1", source="FastF1", fastf1Version=fastf1.__version__,
